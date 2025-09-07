@@ -43,16 +43,18 @@ class BenchmarkAnalyzer:
             return df_copy, new_col_name, 's', 2, float
         else:
             return df_copy, col_name, 'ms', 0, int
+
         
     def _prepare_tput_data(self, df: pd.DataFrame):
         """
         Calculate elapsed time with appropriate unit and prepare throughput data. Add a column for elapsed.
         """
         df_copy = df.copy()
-        if df_copy['TPut (TX/s)'].mean() < 1000:
+        if df_copy['TPut (TX/s)'].max() < 1000:
+            df_copy['Elapsed (ms)'] = 1000 / df_copy['TPut (TX/s)']
             df_copy['Elapsed (ms)'] = df_copy['Elapsed (ms)'].round(0).astype(int)
             return df_copy, 'Elapsed (ms)', 'ms'
-        elif df_copy['TPut (TX/s)'].mean() < 10**6:
+        elif df_copy['TPut (TX/s)'].max() < 10**6:
             df_copy['Elapsed (us)'] = 10**6 / df_copy['TPut (TX/s)']
             df_copy['Elapsed (us)'] = df_copy['Elapsed (us)'].round(0).astype(int)
             return df_copy, 'Elapsed (us)', 'us'
@@ -60,18 +62,103 @@ class BenchmarkAnalyzer:
             df_copy['Elapsed (ns)'] = 10**9 / df_copy['TPut (TX/s)']
             df_copy['Elapsed (ns)'] = df_copy['Elapsed (ns)'].round(0).astype(int)
             return df_copy, 'Elapsed (ns)', 'ns'
+        
+    def anonymized_scans(self):
+        scan_df_groups = self.elapsed_df.drop(columns=['tentative_skip_bytes']).groupby(by=['DRAM (GiB)', 'scale', 'bgw_pct'])
+        
+        for (name, group_df) in scan_df_groups:
+            dram_value, scale_value, bgw_pct = name
+            group_df, y_label, unit, round_digits, dtype = self._prepare_elapsed_data(group_df)
+            scan_per_tx = group_df.groupby('tx')
+            txs = {}
+            tx_count = 0
+            for (tx), tx_df in scan_per_tx:
+                if tx_count == 1:
+                    # add placeholder to align with other anonymized plots
+                    while tx_count < 4:
+                        tx_count += 1
+                        txs[f"SQ{tx_count}"] = pd.Series([None, None, None], index=['base_idx', 'mat_view', 'merged_idx'])
+                        
+                tx_count += 1
+                print(f"{tx} anonymized to Q{tx_count}")
+                txs[f"SQ{tx_count}"] = tx_df.drop(columns='tx').groupby('method').mean()[y_label]
+                
+            anonymized_df = pd.DataFrame(txs)
+            anonymized_df = anonymized_df.T
+            ax = anonymized_df.plot(kind='bar', ylabel=y_label, legend=True)
+            ax.set_xticklabels([q if q not in ['SQ2', 'SQ3', 'SQ4'] else "" for q in anonymized_df.index], rotation=0)
+            plt.savefig(f'{self.dir}/anonymized_scans-{dram_value}-{scale_value}-{bgw_pct}.png', bbox_inches='tight', dpi=300)
+            plt.close()
+            
+    def anonymized_points(self, include_suffix=True):
+        point_df_groups = self.tput_df.groupby(by=['DRAM (GiB)', 'scale', 'bgw_pct'])
+        
+        for (name, group_df) in point_df_groups:
+            dram_value, scale_value, bgw_pct = name
+            group_df, y_label, unit = self._prepare_tput_data(group_df)
+            point_per_tx = group_df.groupby('tx')
+            txs = {}
+            tx_count = 0
+            for (tx), tx_df in point_per_tx:
+                if len(tx_df['method'].unique()) < 3:
+                    print(f"Skipping anonymization for {tx} as there are not enough unique methods.")
+                    continue
+                tx_count += 1
+                # keep optimal skip bytes for merged_idx
+                skip_means = tx_df[tx_df['method'] == 'merged_idx'].drop(columns=['method', 'tx']).groupby('tentative_skip_bytes').mean()[y_label]
+                if skip_means.empty:
+                    continue
+                optimal_skip = skip_means.idxmax()
+                print(f'optimal skip for {tx} in {self.dir} with dram={dram_value}, scale={scale_value}, bgw_pct={bgw_pct}: {optimal_skip}')
+                tx_df = tx_df[(tx_df['tentative_skip_bytes'] == optimal_skip) | (tx_df['method'] != 'merged_idx')]
+                
+                suffix = ''
+                if tx.startswith('join'):
+                    suffix = 'join'
+                    anonymized_name = f"Q{tx_count}" if not include_suffix else f"Q{tx_count}-{suffix}"
+                elif tx.startswith('mixed'):
+                    suffix = 'mixed'
+                    if not include_suffix:
+                        anonymized_name = f"Q{tx_count}"
+                        continue # only include mixed in more detailed drawings
+                    else:
+                        anonymized_name = f"Q{tx_count}-{suffix}"
+                else:
+                    suffix = 'update'
+                    anonymized_name = "Update"
+                txs[anonymized_name] = tx_df.drop(columns='tx').groupby('method').mean()[y_label].round(0).astype(int)
+                print(f"{tx} anonymized to Q{tx_count} ({suffix})")
+            if tx_count < 4:
+                print(f"Skipping anonymization for {name} as there are not enough unique transactions.")
+                continue
+            anonymized_df = pd.DataFrame(txs)
+            anonymized_df = anonymized_df.T
+            params = {'kind': 'bar', 'ylabel': f"Query time ({unit})", 'legend': True, 'logy': True, 'figsize': (12 if include_suffix else 8, 6)}
+            if include_suffix:
+                params['table'] = True
+                params['xlabel'] = ''
+            ax = anonymized_df.plot(**params)
+
+            if include_suffix:
+                ax.set_xticks([], [])
+            else:
+                ax.set_xticklabels(anonymized_df.index, rotation=0)
+            filename_suffix = 'more' if include_suffix else 'less'
+            plt.savefig(f'{self.dir}/anonymized_points-{dram_value}-{scale_value}-{bgw_pct}-{filename_suffix}.png', bbox_inches='tight', dpi=300)
+            plt.close()
+        
 
     def process_join_scan(self):
         """Processes and plots join scan elapsed time."""
-        join_df_groups = self.elapsed_df[self.elapsed_df['tx'] == 'join'].drop(columns=['tx', 'tentative_skip_bytes']).groupby(by=['DRAM (GiB)', 'scale'])
-        
-        for (dram_value, scale_value), group_df in join_df_groups:
+        join_df_groups = self.elapsed_df[self.elapsed_df['tx'] == 'join'].drop(columns=['tx', 'tentative_skip_bytes']).groupby(by=['DRAM (GiB)', 'scale', 'bgw_pct'])
+
+        for (dram_value, scale_value, bgw_pct), group_df in join_df_groups:
             processed_df, y_label, _, round_digits, dtype = self._prepare_elapsed_data(group_df)
             
             mean_df = processed_df.groupby('method').mean()[y_label]
             mean_df = mean_df.round(round_digits).astype(dtype)
             
-            file_prefix = self.dir / f'join-{dram_value}-{scale_value}'
+            file_prefix = self.dir / f'join-{dram_value}-{scale_value}-{bgw_pct}'
                 
             ax = mean_df.plot(title='Join scan elapsed time', ylabel=y_label, kind='bar', legend=False, table=True)
             ax.set_xlabel('')
@@ -81,16 +168,17 @@ class BenchmarkAnalyzer:
 
     def process_maintain(self):
         """Processes and plots maintenance throughput."""
-        tput_df_groups = self.tput_df[self.tput_df['tx'] == 'maintain'].drop(columns=['tx', 'tentative_skip_bytes']).groupby(by=['DRAM (GiB)', 'scale'])
-        
-        for (dram_value, scale_value), group_df in tput_df_groups:
-            mean_df = group_df.groupby('method').mean()['TPut (TX/s)']
-            mean_df.name = 'TPut (TX/s)'
+        filtered = self.tput_df[self.tput_df['tx'] == 'maintain'].drop(columns=['tx', 'tentative_skip_bytes'])
+        tput_df_groups = filtered.groupby(by=['DRAM (GiB)', 'scale', 'bgw_pct'])
+
+        for (dram_value, scale_value, bgw_pct), group_df in tput_df_groups:
+            group_df, tput_newcol, _ = self._prepare_tput_data(group_df)
+            mean_df = group_df.groupby('method').mean()[tput_newcol]
             mean_df = mean_df.round(2)
-            
-            file_prefix = self.dir / f'maintain-{dram_value}-{scale_value}'
-                
-            ax = mean_df.plot(title='Maintain throughput', ylabel='TPut (TX/s)', kind='bar', legend=False, table=True)
+
+            file_prefix = self.dir / f'maintain-{dram_value}-{scale_value}-{bgw_pct}'
+
+            ax = mean_df.plot(title='Maintain throughput', ylabel=tput_newcol, kind='bar', legend=False, table=True)
             ax.set_xlabel('')
             ax.set_xticks([], [])
             plt.savefig(f'{file_prefix}.png', bbox_inches='tight', dpi=300)
@@ -98,34 +186,28 @@ class BenchmarkAnalyzer:
 
     def process_mixed(self):
         """Processes and plots mixed workload performance (scan elapsed and point throughput)."""
-        mixed_scan_df = self.elapsed_df[self.elapsed_df['tx'] == 'mixed'].drop(columns=['tx', 'tentative_skip_bytes']).groupby(by=['DRAM (GiB)', 'scale'])
-        mixed_point_df = self.tput_df[self.tput_df['tx'] == 'mixed-point'].drop(columns=['tx', 'tentative_skip_bytes']).groupby(by=['DRAM (GiB)', 'scale'])
-        
-        for (name, scan_group), (_, point_group) in zip(mixed_scan_df, mixed_point_df):
-            dram_value, scale_value = name
+        mixed_point_df = self.tput_df[self.tput_df['tx'].str.startswith('mixed')].drop(columns=['tentative_skip_bytes']).groupby(by=['DRAM (GiB)', 'scale', 'bgw_pct'])
+
+        for (name, point_group) in mixed_point_df:
+            dram_value, scale_value, bgw_pct = name
+
+            point_group, point_ylabel, unit = self._prepare_tput_data(point_group)
+            point_mean = point_group.groupby(['tx', 'method']).mean()[point_ylabel].round(0).astype(int)
+            # move method from index to columns
+            point_mean = point_mean.unstack(level='method')
+            print(point_mean)
+            file_prefix = self.dir / f'mixed-{dram_value}-{scale_value}-{bgw_pct}'
             
-            processed_scan_df, y_label, _, round_digits, dtype = self._prepare_elapsed_data(scan_group)
-            scan_mean = processed_scan_df.groupby('method').mean()[y_label]
-            
-            point_mean = point_group.groupby('method').mean()['TPut (TX/s)']
-            
-            combined_df = pd.DataFrame({y_label: scan_mean, 'Point TPut (TX/s)': point_mean})
-            combined_df = combined_df.round({y_label: round_digits, 'Point TPut (TX/s)': 2})
-            combined_df = combined_df.astype({y_label: dtype, 'Point TPut (TX/s)': float})
-            
-            file_prefix = self.dir / f'mixed-{dram_value}-{scale_value}'
-                
-            axes = combined_df.plot(subplots=True, layout=(2, 1), legend=True, marker='o', sharex=True, xlabel='')
-            axes[0, 0].set_ylabel(y_label)
-            axes[1, 0].set_ylabel('TPut (TX/s)')
+            ax = point_mean.plot(title='Mixed Queries', ylabel=point_ylabel, kind='bar', legend=True, table=True, xlabel='', logy=True)
+            ax.set_xticks([], [])
             plt.savefig(f'{file_prefix}.png', bbox_inches='tight', dpi=300)
             plt.close()
 
     def process_join_point(self):
         """Processes and plots point join query throughput."""
-        txs_df = self.tput_df[self.tput_df['tx'].isin(['join-ns', 'join-nsc', 'join-nscci'])]
+        txs_df = self.tput_df[(self.tput_df['tx'] == 'join-ns') | (self.tput_df['tx'] == 'join-nsc') | (self.tput_df['tx'] == 'join-nscci')]
         txs_df, tput_newcol, unit = self._prepare_tput_data(txs_df)
-        join_df = self.elapsed_df[self.elapsed_df['tx'] == 'join']
+        join_df = self.elapsed_df[self.elapsed_df['tx'] == 'join'].copy()
         if unit == 'ms':
             join_df['Elapsed (ms)'] = join_df['Elapsed (ms)'] / 25 # 25 nations
         elif unit == 'us':
@@ -136,17 +218,20 @@ class BenchmarkAnalyzer:
             join_df.rename(columns={'Elapsed (ms)': tput_newcol}, inplace=True)
             join_df[tput_newcol] = join_df[tput_newcol] / 25 * 1000 * 1000
         join_df[tput_newcol] = join_df[tput_newcol].round(0).astype(int)
-        
-        setup_tput_groups = txs_df.groupby(by=['DRAM (GiB)', 'scale'])
-        setup_join_groups = join_df.groupby(by=['DRAM (GiB)', 'scale'])
+
+        setup_tput_groups = txs_df.groupby(by=['DRAM (GiB)', 'scale', 'bgw_pct'])
+        setup_join_groups = join_df.groupby(by=['DRAM (GiB)', 'scale', 'bgw_pct'])
 
         for name, setup_tput_df in setup_tput_groups:
-            dram_value, scale_value = name
+            dram_value, scale_value, bgw_pct = name
             setup_join_df = setup_join_groups.get_group(name)
             setup_join_method_groups = setup_join_df.groupby("method")
             series_dict = {}
             for method_name, method_df in setup_tput_df.groupby('method'):
-                method_join_df = setup_join_method_groups.get_group(method_name)
+                try:
+                    method_join_df = setup_join_method_groups.get_group(method_name)
+                except KeyError:
+                    continue
                 join_n_mean = method_join_df.drop(columns=['method', 'tx', 'tentative_skip_bytes']).mean()[tput_newcol]
                 if method_name != 'merged_idx':
                     series_to_plot = method_df.drop(columns=['method','tentative_skip_bytes']).groupby('tx').mean()[tput_newcol]
@@ -161,8 +246,6 @@ class BenchmarkAnalyzer:
                             series_to_plot.append(all_means[tput_newcol])
                         else:
                             skip_means = tx_df.drop(columns=['method', 'tx']).groupby('tentative_skip_bytes').mean()[tput_newcol]
-                            print(f"Finding optimal skip for {tx} in {self.dir}")
-                            print(skip_means.to_string())
                             series_to_plot.append(skip_means.max())
                     # dumb skipping
                     dumb_skipping_series = method_df[method_df['tentative_skip_bytes'] == 0].drop(columns=['method','tentative_skip_bytes']).groupby('tx').mean()[tput_newcol]
@@ -174,48 +257,47 @@ class BenchmarkAnalyzer:
                 
             plot_df = pd.DataFrame(series_dict).round(2)
             plot_df.columns.name = ''
-            self._plot_join_point_series(plot_df, tput_newcol, dram_value, scale_value, dumb_skipping_series)
+            self._plot_join_point_series(plot_df, tput_newcol, dram_value, scale_value, bgw_pct, dumb_skipping_series)
 
-    def _plot_join_point_series(self, plot_df: pd.DataFrame, ylabel, dram_value: int, scale_value: int, dumb_skipping_series = None):
+    def _plot_join_point_series(self, plot_df: pd.DataFrame, ylabel, dram_value: int, scale_value: int, bgw_pct: int, dumb_skipping_series = None):
         """Helper to plot point join series."""
         plot_df.rename(index={'join-n': '0 for an\nentire nation', 'join-ns': "1 for a state\nout of a nation", 'join-nsc': "2 for a county\nout of a nation", 'join-nscci': "3 for a city\nout of a nation"}, inplace=True)
         ax = plot_df.plot(title='Point join queries', legend=True, marker='o', ylabel=ylabel, logy=True)
-        scatter = ax.scatter(plot_df.index, dumb_skipping_series, label='merged_idx w/o\nsmart skipping', color='red', marker='x', zorder=10)
+        # scatter = ax.scatter(plot_df.index, dumb_skipping_series, label='merged_idx w/o\nsmart skipping', color='red', marker='x', zorder=10)
         handles, labels = ax.get_legend_handles_labels()
-        handles.append(scatter)
+        # handles.append(scatter)
         ax.legend(handles, labels)
         ax.set_xlabel('Number of inner-instance searches')
         ax.set_xticks(range(len(plot_df.index)), plot_df.index)
         ax.set_title(f'Factor of locality quantified by number of inner-instance searches')
-        file_path = self.dir / f'join_point-{dram_value}-{scale_value}.png'
+        file_path = self.dir / f'join_point-{dram_value}-{scale_value}-{bgw_pct}.png'
         plt.savefig(file_path, bbox_inches='tight', dpi=300)
         plt.close()
 
-    def process_skip_studies(self):
+    def process_skip_studies(self, filter_tx: str = 'join-nscci'):
         """
         Compares LSM and B-tree performance for a skip study and generates a plot.
         This is a static method as it compares data from two different analyzer objects.
         """
 
-        filtered = self.tput_df[self.tput_df['tx'] == 'join-nscci']
-        groups = filtered.groupby(['DRAM (GiB)', 'scale'])
+        filtered = self.tput_df[self.tput_df['tx'] == filter_tx]
+        groups = filtered.groupby(['DRAM (GiB)', 'scale', 'bgw_pct'])
 
         for (name, group) in groups:
-            dram, scale = name
+            dram, scale, bgw_pct = name
             group, col, _ = self._prepare_tput_data(group)
             base_elapsed = group[group['method'] == 'base_idx'][col].mean()
             view_elapsed = group[group['method'] == 'mat_view'][col].mean()
             merged_group = group[group['method'] == 'merged_idx']
-            filter_columns = [col] + (['pp_0 CPU Util (%)'] if 'pp_0 CPU Util (%)' in merged_group.columns else [])
-            merged_means = merged_group.drop(columns=['method', 'tx']).groupby('tentative_skip_bytes').mean()[filter_columns]
-            merged_means.rename(columns={col: f'{col} of merged_idx'}, inplace=True)
+            filter_columns = [col]
+            # + (['pp_0 CPU Util (%)'] if 'pp_0 CPU Util (%)' in merged_group.columns else [])
+            merged_means = merged_group.drop(columns=['method', 'tx']).groupby('tentative_skip_bytes')[filter_columns].mean()
+            merged_means.rename(columns={col: 'merged_idx'}, inplace=True)
+            print(merged_means)
 
-            print("Skip Study Comparison:")
-            print(merged_means.to_string())
-
-            ax = merged_means.plot(title='Skip study with various tentative skip bytes', ylabel=col, xlabel='', marker='o', legend=True, secondary_y='pp_0 CPU Util (%)' if 'pp_0 CPU Util (%)' in merged_means.columns else False)
-            base_line = ax.axhline(base_elapsed, linestyle='--', label=f'{col} of base_idx')
-            view_line = ax.axhline(view_elapsed, linestyle='-.', label=f'{col} of mat_view')
+            ax = merged_means.plot(title='Smart Skipping', ylabel=col, xlabel='tentatively skipped bytes', marker='o', legend=True, secondary_y='pp_0 CPU Util (%)' if 'pp_0 CPU Util (%)' in merged_means.columns else False)
+            base_line = ax.axhline(base_elapsed, linestyle=':', label=f'base_idx')
+            view_line = ax.axhline(view_elapsed, linestyle='--', label=f'mat_view')
             # # plot lsm on ax too
             # lsm_mean.plot(ax=ax, marker='o', legend=True)
             # xlabels = list(set(lsm_mean.index).union(set(btree_mean.index)))
@@ -228,7 +310,7 @@ class BenchmarkAnalyzer:
             ax.set_ylabel(col)
             if 'pp_0 CPU Util (%)' in merged_means.columns:
                 ax.right_ax.set_ylabel('Page Provider Thread CPU Util (%)')
-            plt.savefig(f'{self.dir}/skip-study-{dram}-{scale}.png', bbox_inches='tight', dpi=300)
+            plt.savefig(f'{self.dir}/skip-study-{filter_tx}-{dram}-{scale}-{bgw_pct}.png', bbox_inches='tight', dpi=300)
             plt.close()
 
 def main():
@@ -241,15 +323,17 @@ def main():
         lsm_analyzer = BenchmarkAnalyzer('geo_lsm')
         btree_analyzer = BenchmarkAnalyzer('geo_btree')
 
-        analyzers = {'LSM': lsm_analyzer, 'B-Tree': btree_analyzer}
+        analyzers = {'B-Tree': btree_analyzer, 'LSM': lsm_analyzer}
 
         for name, analyzer in analyzers.items():
             print(f"--- Processing {name} Benchmark Data ---")
-            analyzer.process_join_scan()
-            analyzer.process_maintain()
+            # analyzer.anonymized_scans()
+            analyzer.anonymized_points()
+            analyzer.anonymized_points(False)
             analyzer.process_mixed()
-            analyzer.process_join_point()
+            # analyzer.process_join_point()
             analyzer.process_skip_studies()
+            analyzer.process_skip_studies('mixed-nscci')
             print(f"--- Finished processing {name} ---")
 
     except FileNotFoundError as e:
