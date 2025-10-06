@@ -2,7 +2,28 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import Tuple
+from collections import OrderedDict
+
+class DataPerConfig:
+    """
+    Holds data for a specific configuration, including scale, background write percentage, dram size,
+    and the corresponding DataFrame.
+    """
+    def __init__(self, scale: int, bgw_pct: int, dram_size: int, df: pd.DataFrame):
+        self.scale = scale
+        self.bgw_pct = bgw_pct
+        self.dram_size = dram_size
+        self.directory = f"{scale}-{bgw_pct}"
+        Path(self.directory).mkdir(parents=True, exist_ok=True)
+        self.df = df
+
+    def group_and_anonymize(self):
+        pass
+
+    def plot_queries(self, detailed: bool):
+        pass
+        
+
 
 class BenchmarkAnalyzer:
     """
@@ -26,6 +47,14 @@ class BenchmarkAnalyzer:
             
         self.elapsed_df = pd.read_csv(self.dir / 'Elapsed.csv')
         self.tput_df = pd.read_csv(self.dir / 'TPut.csv')
+        self.colors = OrderedDict([
+            ('base_idx', 'C0'),
+            ('hash', 'C3'),
+            ('mat_view', 'C1'),
+            ('DBToaster', 'C4'),
+            ('merged_idx', 'C2'),
+        ])
+        
         
     def _prepare_tput_data(self, df: pd.DataFrame):
         """
@@ -45,8 +74,18 @@ class BenchmarkAnalyzer:
             df_copy['Elapsed (ns)'] = df_copy['Elapsed (ns)'].round(0).astype(int)
             return df_copy, 'Elapsed (ns)', 'ns'
         
-    def update_details(self):
-        update_df = self.tput_df[self.tput_df['tx'] == 'maintain'].drop(columns=['tx', 'tentative_skip_bytes'])
+    def sort_lambda(self, method: str) -> int:
+        order = {
+            'base_idx': 0,
+            'mat_view': 1,
+            'merged_idx': 2,
+            'hash': 3,
+            'DBToaster': 4
+        }
+        return order.get(method, 5)
+        
+    def plot_update(self):
+        update_df = self.tput_df[(self.tput_df['tx'] == 'maintain') & (self.tput_df['method'] != 'hash')].drop(columns=['tx', 'tentative_skip_bytes'])
         update_df, y_label, unit = self._prepare_tput_data(update_df)
         dfs_by_config = update_df.groupby(['scale', 'bgw_pct'])
         dbtoaster_update_df = pd.read_csv('update_times.csv')
@@ -61,22 +100,42 @@ class BenchmarkAnalyzer:
             # closest dram in df to dbtoaster_dram
             closest_dram = df.iloc[(df['DRAM (GiB)'] - dbtoaster_dram).abs().argsort()[:1]]['DRAM (GiB)'].values[0]
             df = pd.concat([df, pd.DataFrame({'DRAM (GiB)': [closest_dram], 'method': ['DBToaster'], y_label: [dbtoaster_update_df['update_time_us']]})], ignore_index=True)
+            df[y_label] = df[y_label].round(0).astype(int)
             df = df.pivot(index='DRAM (GiB)', columns='method', values=y_label).reset_index()
-            # put dbtoaster as the last column
-            df = df[[col for col in df.columns if col != 'DBToaster'] + ['DBToaster']]
             # make DRAM (GiB) the index (not a column)
             df.set_index('DRAM (GiB)', inplace=True)
-            fig, ax = plt.subplots(figsize=(len(df) + 2, 6))
-            inf_df = df.replace(np.nan, np.inf, inplace=False)
-            inf_df.plot(kind='bar', ylabel=f'Update time ({unit})', legend=True, ax=ax, xlabel='', table=True, logy=False)
-            ymax = ax.get_ylim()[1]
-            replaced_df = df.replace(np.nan, ymax * 2, inplace=False)
-            replaced_df.plot(kind='bar', ylabel=f'Update time ({unit})', ax=ax, xlabel='', logy=False, clip_on=True, legend=False)
+            df = df[[col for col in self.colors.keys() if col in df.columns]]
+            # update details
+            self._plot_update(df, scale_value, bgw_pct, unit, False)
+            # update summary
+            second_smallest_dram = df.index[1]
+            df_summary = df.loc[[second_smallest_dram, closest_dram]]
+            # update dram values to small dram and large dram
+            df_summary.index = ['Small DRAM', 'Large DRAM']
+            self._plot_update(df_summary, scale_value, bgw_pct, unit, True)
+
+    def _plot_update(self, df: pd.DataFrame, scale_value: int, bgw_pct: int, unit: str, summary: bool):
+        fig, ax = plt.subplots(figsize=(len(df) * 1.5 + 1.5, 4))
+        inf_df = df.replace(np.nan, np.inf, inplace=False)
+        inf_df.plot(kind='bar', ylabel=f'Update time ({unit})', legend=True, ax=ax, xlabel='', table=(not summary), logy=False, color=[self.colors.get(col, 'C5') for col in inf_df.columns])
+        ymax = ax.get_ylim()[1]
+        infs_only = inf_df[inf_df == np.inf]
+        replaced_df = infs_only.replace(np.inf, ymax * 2, inplace=False)
+        for i, col in enumerate(replaced_df.columns):
+            # set all other columns to 0
+            col_df = pd.DataFrame({c: [0] * len(replaced_df) for c in replaced_df.columns}, index=replaced_df.index)
+            col_df[col] = replaced_df[col]
+            col_df.plot(kind='bar', ylabel=f'Update time ({unit})', ax=ax, xlabel='', logy=False, clip_on=True, legend=False, hatch='//', color='none', edgecolor=self.colors.get(col, 'C5'))
+        if not summary:
             ax.set_xticks([], [])
-            ax.set_ylim(0, ymax)
-            plt.savefig(f'{self.dir}/update-details-{scale_value}-{bgw_pct}.png', bbox_inches='tight', dpi=300)
-            plt.close()
-        
+            ax.text(-0.7, 0, 'DRAM (GiB)', horizontalalignment='right', verticalalignment='top')
+            ax.set_ylim(0, max(df[['merged_idx', 'base_idx']].max()) * 1.1)
+        else:
+            ax.set_xticklabels(df.index, rotation=0)
+            ax.set_ylim(0, max(df[['merged_idx', 'base_idx', 'mat_view']].max()) * 1.1)
+        suffix = "less" if summary else "more"
+        plt.savefig(f'{self.dir}/{scale_value}-{bgw_pct}-update-{suffix}.png', bbox_inches='tight', dpi=300)
+        plt.close()
             
     def anonymized_points(self, include_suffix=True):
         point_df_groups = self.tput_df.groupby(by=['DRAM (GiB)', 'scale', 'bgw_pct'])
@@ -93,10 +152,6 @@ class BenchmarkAnalyzer:
             tx_count = 0
             for (tx), tx_df in point_per_tx:
                 if tx == 'maintain':
-                    """
-                    PLOT 2: Update time
-                    """
-                    self.plot_update(name, unit, y_label, tx_df)
                     continue
                 if len(tx_df['method'].unique()) < 3:
                     print(f"Skipping anonymization for {tx} as there are not enough unique methods.")
@@ -129,79 +184,42 @@ class BenchmarkAnalyzer:
             if tx_count < 4:
                 print(f"Skipping anonymization for {name} as there are not enough unique transactions.")
                 continue
-            # sort txs by key
-            txs = dict(sorted(txs.items(), key=lambda item: item[0]))
             anonymized_df = pd.DataFrame(txs)
             anonymized_df = anonymized_df.T
+            # sort columns by self.colors order
+            anonymized_df = anonymized_df[[col for col in self.colors.keys() if col in anonymized_df.columns]]
             self.plot_queries(anonymized_df, name, unit, include_suffix)
             
     def plot_queries(self, anonymized_df, config_name, unit, include_suffix):
-        width = len(anonymized_df.columns) + 2
-        fig, ax = plt.subplots(figsize=(width, 6))
-        anonymized_df.plot(kind='bar', ylabel=f'Query time ({unit})', legend=True, ax=ax, xlabel='', table=include_suffix, logy=True)
+        width = len(anonymized_df.columns) * 1.5 + 1.5
+        fig, ax = plt.subplots(figsize=(width, 4))
+        anonymized_df.plot(kind='bar', ylabel=f'Query time ({unit})', legend=True, ax=ax, xlabel='', table=include_suffix, logy=True, color=[self.colors.get(col, 'C5') for col in anonymized_df.columns])
         if include_suffix:
             ax.set_xticks([], [])
         else:
             ax.set_xticklabels(anonymized_df.index, rotation=0)
         dram_value, scale_value, bgw_pct = config_name
         filename_suffix = 'more' if include_suffix else 'less'
-        plt.savefig(f'{self.dir}/queries-{dram_value}-{scale_value}-{bgw_pct}-{filename_suffix}.png', bbox_inches='tight', dpi=300)
-        plt.close()
-        
-    
-    def plot_update(self, config_name, unit, y_label, tx_df_by_config):
-        fig, ax = plt.subplots(figsize=(4, 6))
-        # pass a series with no column names
-        
-        update_df = pd.DataFrame([tx_df_by_config.drop(columns='tx').groupby('method').mean()[y_label].round(0).astype(int)])
-        
-        series_to_draw = update_df.iloc[0]
-        series_to_draw.index = [''] * len(series_to_draw)
-
-        update_df.plot(kind='bar', ylabel='Update Time (unit)', ax=ax, xlabel='', table=series_to_draw)
-        ax.set_xticks([], [])
-        # ax.yaxis.set_label_position("right")
-        # ax.yaxis.tick_right()
-        # ax.legend(loc='upper right', bbox_to_anchor=(0, 1))
-        
-        dram_value, scale_value, bgw_pct = config_name
-        plt.savefig(f'{self.dir}/update-{dram_value}-{scale_value}-{bgw_pct}.png', bbox_inches='tight', dpi=300)
+        plt.savefig(f'{self.dir}/{dram_value}-{scale_value}-{bgw_pct}-queries-{filename_suffix}.png', bbox_inches='tight', dpi=300)
         plt.close()
             
     def plot_size(self, config_name, group_df_by_config):
-        fig, ax = plt.subplots(figsize=(4, 6))
+        fig, ax = plt.subplots(figsize=(3, 4))
         size_df = pd.DataFrame([group_df_by_config.drop(columns=['tx']).groupby('method').mean()['size (MiB)'].round(0).astype(int)])
         
         # pass a series with no column names
         series_to_draw = size_df.iloc[0]
         series_to_draw.index = [''] * len(series_to_draw)
+        size_df = size_df[[col for col in self.colors.keys() if col in size_df.columns]]
 
-        size_df.plot(kind='bar', ylabel='Size (MiB)', legend=True, ax=ax, xlabel='', table=series_to_draw)
+        size_df.plot(kind='bar', ylabel='Size (MiB)', ax=ax, xlabel='', table=series_to_draw, legend=False, color=[self.colors.get(col, 'C5') for col in size_df.columns])
         ax.set_xticks([], [])
         # ax.yaxis.set_label_position("right")
         # ax.yaxis.tick_right()
         
         dram_value, scale_value, bgw_pct = config_name
-        plt.savefig(f'{self.dir}/size-{dram_value}-{scale_value}-{bgw_pct}.png', bbox_inches='tight', dpi=300)
+        plt.savefig(f'{self.dir}/{dram_value}-{scale_value}-{bgw_pct}-size.png', bbox_inches='tight', dpi=300)
         plt.close()
-
-    def process_join_scan(self):
-        """Processes and plots join scan elapsed time."""
-        join_df_groups = self.elapsed_df[self.elapsed_df['tx'] == 'join'].drop(columns=['tx', 'tentative_skip_bytes']).groupby(by=['DRAM (GiB)', 'scale', 'bgw_pct'])
-
-        for (dram_value, scale_value, bgw_pct), group_df in join_df_groups:
-            processed_df, y_label, _, round_digits, dtype = self._prepare_elapsed_data(group_df)
-            
-            mean_df = processed_df.groupby('method').mean()[y_label]
-            mean_df = mean_df.round(round_digits).astype(dtype)
-            
-            file_prefix = self.dir / f'join-{dram_value}-{scale_value}-{bgw_pct}'
-                
-            ax = mean_df.plot(title='Join scan elapsed time', ylabel=y_label, kind='bar', legend=False, table=True)
-            ax.set_xlabel('')
-            ax.set_xticks([], [])
-            plt.savefig(f'{file_prefix}.png', bbox_inches='tight', dpi=300)
-            plt.close()
 
 def main():
     """
@@ -217,9 +235,9 @@ def main():
 
         for name, analyzer in analyzers.items():
             print(f"--- Processing {name} Benchmark Data ---")
-            analyzer.update_details()
             analyzer.anonymized_points()
             analyzer.anonymized_points(False)
+            analyzer.plot_update()
             
             print(f"--- Finished processing {name} ---")
 
