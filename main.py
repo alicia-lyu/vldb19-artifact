@@ -24,7 +24,7 @@ class DataPerConfig:
         self.scale = scale
         self.bgw_pct = bgw_pct
         self.dram_size = dram_size
-        self.directory = f"{parent_dir}/scale{scale}-bgw{bgw_pct}/dram{dram_size}"
+        self.directory = f"{parent_dir}/scale{scale}/bgw{bgw_pct}-dram{dram_size}"
         Path(self.directory).mkdir(parents=True, exist_ok=True)
         self.raw_df = df
         self.anonymized_df, self.y_label, self.unit = self.group_and_anonymize()
@@ -187,10 +187,10 @@ class BenchmarkAnalyzer:
         self.tput_df['DRAM (GiB)'] = self.tput_df['DRAM (GiB)'].replace(0.09, 0.1)  # Normalize 0.09 to 0.1 (0.01 for hash table)
         self.dfs_per_config = {}
         for (scale, bgw_pct, dram), df in self.tput_df.groupby(['scale', 'bgw_pct', 'DRAM (GiB)']):
-            if (scale, bgw_pct) not in self.dfs_per_config:
-                self.dfs_per_config[(scale, bgw_pct)] = [DataPerConfig(scale, bgw_pct, dram, df, str(self.dir))]
+            if scale not in list(self.dfs_per_config.keys()):
+                self.dfs_per_config[scale] = [DataPerConfig(scale, bgw_pct, dram, df, str(self.dir))]
             else:
-                self.dfs_per_config[(scale, bgw_pct)].append(DataPerConfig(scale, bgw_pct, dram, df, str(self.dir)))
+                self.dfs_per_config[scale].append(DataPerConfig(scale, bgw_pct, dram, df, str(self.dir)))
     
     def plot_data_per_config(self):
         print("======================================================================")
@@ -206,8 +206,7 @@ class BenchmarkAnalyzer:
     def update_of_all_configs(self):
         dbtoaster_update_df = pd.read_csv('update_times.csv')
         dbtoaster_update_df = dbtoaster_update_df.mean()
-        for config, dpc_list in self.dfs_per_config.items():
-            scale, bgw_pct = config
+        for scale, dpc_list in self.dfs_per_config.items():
             update_by_dram = {}
             for dpc in dpc_list:
                 update_df = dpc.get_update_df()
@@ -218,7 +217,7 @@ class BenchmarkAnalyzer:
                 update_by_dram[dpc.dram_size] = update_df.iloc[0]
             update_by_dram = pd.DataFrame(update_by_dram).T
             if update_by_dram.empty:
-                print(f"No update data to plot for scale={scale}, bgw_pct={bgw_pct}")
+                print(f"No update data to plot for scale={scale}")
                 continue
             dbtoaster_dram = dbtoaster_update_df['memory_kb'] / 1024
             # closest dram in df to dbtoaster_dram
@@ -228,18 +227,18 @@ class BenchmarkAnalyzer:
             dbtoaster_col_df['DBToaster'] = dbtoaster_col_df['DBToaster'].round(0).astype('int')
             update_by_dram = pd.concat([update_by_dram, dbtoaster_col_df], axis=1)
             update_by_dram = update_by_dram[[col for col in COLORS.keys() if col in update_by_dram.columns]]
-            self._plot_update(update_by_dram, scale, bgw_pct, 'us', False)
+            self._plot_update(update_by_dram, scale, 'us', False)
             # update summary
             if len(update_by_dram) < 2:
-                print(f"Not enough DRAM configurations for update summary plot at scale={scale}, bgw_pct={bgw_pct}")
+                print(f"Not enough DRAM configurations for update summary plot at scale={scale}")
                 continue
             second_smallest_dram = update_by_dram.index[1]
             df_summary = update_by_dram.loc[[second_smallest_dram, closest_dram]]
             # update dram values to small dram and large dram
             df_summary.index = ['Small DRAM', 'Large DRAM']
-            self._plot_update(df_summary, scale, bgw_pct, 'us', True)
+            self._plot_update(df_summary, scale, 'us', True)
 
-    def _plot_update(self, df: pd.DataFrame, scale_value: int, bgw_pct: int, unit: str, summary: bool):
+    def _plot_update(self, df: pd.DataFrame, scale_value: int, unit: str, summary: bool):
         fig, ax = plt.subplots(figsize=(len(df) * 1.5 + 1.5, 4))
         inf_df = df.replace(np.nan, np.inf, inplace=False)
         inf_df.plot(kind='bar', ylabel=f'Update time ({unit})', legend=True, ax=ax, xlabel="DRAM (GiB)", logy=False, color=[COLORS.get(col, 'C5') for col in inf_df.columns])
@@ -257,7 +256,7 @@ class BenchmarkAnalyzer:
         else:
             ax.set_ylim(0, max(df[['merged_idx', 'base_idx', 'mat_view']].max()) * 1.1)
         suffix = "less" if summary else "more"
-        plt.savefig(f'{self.dir}/scale{scale_value}-bgw{bgw_pct}/update-{suffix}.png', bbox_inches='tight', dpi=300)
+        plt.savefig(f'{self.dir}/scale{scale_value}/update-{suffix}.png', bbox_inches='tight', dpi=300)
         plt.close()
         
 
