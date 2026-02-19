@@ -1,6 +1,7 @@
 from unicodedata import name
 import pandas as pd
 import numpy as np
+import seaborn as sns
 import matplotlib.pyplot as plt
 from pathlib import Path
 from collections import OrderedDict
@@ -43,6 +44,41 @@ class DataPerConfig:
     
     def __str__(self):
         return f"DataPerConfig(scale={self.scale}, bgw_pct={self.bgw_pct}, dram_size={self.dram_size} GiB)"   
+    
+    def plot_cpu(self):
+        # plot heatmap
+        if self.anonymized_df_cpu.empty:
+            print(f"No CPU data to plot for {self.directory}")
+            return
+        fig, ax = plt.subplots(figsize=(len(self.anonymized_df_cpu.columns) + 1, 3))
+        cpu_df = self.anonymized_df_cpu.copy()
+        # delete update row if exists
+        cpu_df = cpu_df[~cpu_df.index.str.contains('Update')]
+        # im = ax.imshow(cpu_df, cmap='Reds', vmin=0, vmax=100)
+        # ax.set_aspect(0.5)
+        # # add gridlines
+        # # Show all ticks and label them
+        # ax.set_xticks(np.arange(len(cpu_df.columns)), labels=cpu_df.columns)
+        # ax.set_yticks(np.arange(len(cpu_df.index)), labels=cpu_df.index)
+        # # Rotate the tick labels and set their alignment.
+        # plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+        # # Loop over data dimensions and create text annotations.
+        # for i in range(len(cpu_df.index)):
+        #     for j in range(len(cpu_df.columns)):
+        #         text = ax.text(j, i, f"{cpu_df.iloc[i, j]:.1f}%",
+        #                        ha="center", va="center", color="black")
+        # # ax.set_title(f"{self.engine} - CPU Utilization (%)")
+        # cb = fig.colorbar(im, ax=ax) # tick labels with %
+        # cb.ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: '{:.0f}%'.format(y)))
+        # plt.savefig(f'{self.directory}/cpu_utilization.png', bbox_inches='tight', dpi=300)
+        # plt.close()
+        # seaborn heatmap
+        sns.heatmap(cpu_df, annot=True, fmt=".1f", cmap="Reds", vmin=0, vmax=100, cbar_kws={'format': '%.0f%%'}, linewidths=.5, ax=ax)
+        ax.set_ylabel('')
+        ax.set_xlabel('')
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=30, ha="right")
+        plt.savefig(f'{self.directory}/cpu_utilization.png', bbox_inches='tight', dpi=300)
+        plt.close()
         
     def get_size_df(self):
         size_df = self.raw_df[['method', 'size (MiB)']].groupby('method').mean()['size (MiB)'].round(0).astype(int)
@@ -52,6 +88,7 @@ class DataPerConfig:
         # convert MiB to GiB
         size_df = (size_df / 1024).round(3)
         return pd.DataFrame({'size (GiB)': size_df}).T
+    
 
     def _plot_size(self, ax):
         # pass a series with no column names
@@ -178,9 +215,10 @@ class DataPerConfig:
         for tx_group, txs in [('join', join_txs), ('count', count_txs), ('count distinct', distinct_txs)]:
             if not txs:
                 continue
-            last_group = (tx_group == 'count distinct')
-            width = len(txs) + 1 if not last_group else len(txs) + 2
-            fig, axes = plt.subplots(nrows=1, ncols=len(txs), figsize=(width + 2, 3), layout='constrained')
+            first_group = (tx_group == 'join')
+            width = len(txs) + 1 if not first_group else len(txs) + 3
+            height = 1.5
+            fig, axes = plt.subplots(nrows=1, ncols=len(txs), figsize=(width, height), layout='constrained')
             for i, tx in enumerate(txs):
                 ax = axes[i] if len(txs) > 1 else axes
                 row = self.anonymized_df.loc[tx]
@@ -191,8 +229,8 @@ class DataPerConfig:
                 ax.set_xticks([], [])
             # fig.suptitle(f'{self.engine} - {tx_group.capitalize()} Queries', fontsize=16)
             axes[0].set_ylabel(f'Elapsed time ({self.unit})')
-            if last_group:
-                ax.legend(loc='center left', bbox_to_anchor=(1.2, 1)) # last query ax
+            if first_group:
+                ax.legend(loc='center left', bbox_to_anchor=(1.2, 0.5)) # last query ax
             fig.savefig(f'{self.directory}/queries-{tx_group.replace(" ", "-")}.png', bbox_inches='tight', dpi=300)
         # update & space
         fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(2 + 3, 3), layout='constrained')
@@ -214,6 +252,8 @@ class DataPerConfig:
         # fig.suptitle(f'{self.engine} - Update & Size', fontsize=16)
         fig.savefig(f'{self.directory}/update-size.png', bbox_inches='tight', dpi=300)
         plt.close()
+        
+        
 
     def plot_queries(self, detailed: bool):
 
@@ -231,22 +271,34 @@ class DataPerConfig:
         plt.close()
         
         # each tx in its own plot
-        width_multiplier = 1.5
+        width_multiplier = 1.2
         ncols = len(self.anonymized_df) + 1
-        fig, axes = plt.subplots(nrows=1, ncols=ncols, figsize=(ncols * width_multiplier + 2, 3), layout='constrained')
+        fig, axes = plt.subplots(nrows=1, ncols=ncols, figsize=(ncols * width_multiplier + 2, 2.5), layout='constrained')
         for i, (tx, row) in enumerate(self.anonymized_df.iterrows()):
             ax = axes[i] if len(self.anonymized_df) > 1 else axes
             row_df = pd.DataFrame(row).T
+            print(f"Plotting {tx} with data:\n{row_df}")
             row_df.plot(kind='bar', ylabel="", legend=False, ax=ax, xlabel='', color=[COLORS.get(col, 'C5') for col in row_df.columns])
-            ax.set_title(tx)
+            ax.set_title(tx.replace(' ', '\n', 1))
             ax.set_xticks([], [])
         self._plot_size(axes[-1])
         axes[-1].set_title('DB Size')
         leftmost_ax = axes[0] if len(self.anonymized_df) > 1 else axes
         leftmost_ax.set_ylabel(f'Elapsed time ({self.unit})')
-        # rightmost_ax = axes[-1] if len(self.anonymized_df) > 1 else axes
-        leftmost_ax.legend(loc='center right', bbox_to_anchor=(-0.2, 1))
-        fig.suptitle(self.engine, fontsize=16)
+
+        handles, labels = ax.get_legend_handles_labels()
+
+        fig.legend(
+            handles, 
+            labels, 
+            loc='lower center', 
+            bbox_to_anchor=(0.5, -0.05),
+            ncol=len(self.anonymized_df.columns), 
+            frameon=True
+        )
+
+        plt.tight_layout(rect=[0, 0.05, 1, 1]) # Leaves space at the bottom for the legend
+        # fig.suptitle(self.engine, fontsize=16)
         plt.savefig(f'{self.directory}/queries-individual-{filename_suffix}.png', bbox_inches='tight', dpi=300)
         plt.close()
 
@@ -302,6 +354,15 @@ class BenchmarkAnalyzer:
                 dpc.plot_queries(detailed=False)
                 dpc.plot_size()
 
+    def plot_cpu_utilization(self):
+        print("======================================================================")
+        print(f"Plotting CPU utilization for configurations...")
+        for _, dpc_list in self.dfs_per_config.items():
+            for dpc in dpc_list:
+                print("----------------------------------------------------------------------")
+                print(f"Plotting CPU utilization for {dpc.directory}...")
+                dpc.plot_cpu()
+    
     def update_of_all_configs(self):
         dbtoaster_update_df = pd.read_csv('update_times.csv')
         dbtoaster_update_df = dbtoaster_update_df.mean()
@@ -312,7 +373,7 @@ class BenchmarkAnalyzer:
                 assert(dpc.unit == 'ms')
                 if update_df.empty:
                     continue
-                update_df = (update_df * 1000).round(0).astype('int')  # convert to us
+                update_df = (update_df * 1000).round(2)  # convert to us
                 update_by_dram[dpc.dram_size] = update_df.iloc[0]
             update_by_dram = pd.DataFrame(update_by_dram).T
             if update_by_dram.empty:
@@ -323,7 +384,7 @@ class BenchmarkAnalyzer:
             closest_dram = update_by_dram.iloc[np.abs(np.array(update_by_dram.index) - dbtoaster_dram).argsort()[:1]].index[0]
             dbtoaster_col = {'DBToaster IVM': dbtoaster_update_df['update_time_us']}
             dbtoaster_col_df = pd.DataFrame(dbtoaster_col, index=[closest_dram])
-            dbtoaster_col_df['DBToaster IVM'] = dbtoaster_col_df['DBToaster IVM'].round(0).astype('int')
+            dbtoaster_col_df['DBToaster IVM'] = dbtoaster_col_df['DBToaster IVM'].round(2)
             update_by_dram = pd.concat([update_by_dram, dbtoaster_col_df], axis=1)
             update_by_dram = update_by_dram[[col for col in COLORS.keys() if col in update_by_dram.columns]]
             self._plot_update(update_by_dram, scale, 'us', False)
@@ -338,10 +399,11 @@ class BenchmarkAnalyzer:
             self._plot_update(df_summary, scale, 'us', True)
 
     def _plot_update(self, df: pd.DataFrame, scale_value: int, unit: str, summary: bool):
-        fig, ax = plt.subplots(figsize=(len(df) * 1.5 + 1.5, 3))
+        fig, ax = plt.subplots(figsize=(len(df) * 1.5 + 1.5, 2))
         inf_df = df.replace(np.nan, np.inf, inplace=False)
         # replace mat_view with traditional IVM
         inf_df.rename(columns={'mat_view': 'traditional IVM'}, inplace=True)
+        inf_df.to_latex(f'{self.dir}/scale{scale_value}/update.tex', float_format="%.2f")
         inf_df.plot(kind='bar', ylabel=f'Update time ({unit})', legend=True, ax=ax, logy=False, color=[COLORS.get(col, 'C5') for col in inf_df.columns])
         if not summary:
             ax.set_xlabel("DRAM (GiB)")
@@ -378,6 +440,7 @@ def main():
                     }
 
         for name, analyzer in analyzers.items():
+            analyzer.plot_cpu_utilization()
             analyzer.plot_data_per_config()
             analyzer.update_of_all_configs()
         
