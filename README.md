@@ -2,10 +2,22 @@
 
 ## How to reproduce the experiments
 
+VM prerequisites:
+
+- x86_64 (Intel/AMD) architecture
+- At least 2 CPU cores and 8 GB of RAM
+
+Package prerequisites: 
+
+- Docker
+- Python 3
+- Pip
+- Run `pip install -r requirements.txt` to install the required Python packages.
+
 Simply run `make paper-ready` in the root directory. This will trigger a series of commands: 
 
-- First, two docker images are pulled from GitHub Container Registry. 
-- Then, two containers are created from the images and run experiments. 
+- First, two docker images are pulled from GitHub Container Registry.
+- Then, two containers are created from the images and run experiments.
 - Finally, plots are generated from the experiment results and moved to the `paper-ready` directory.
 
 For details of the implementation of the docker images, please refer to [the main repository](https://github.com/alicia-lyu/leanstore) and [the DBToaster repository](https://github.com/alicia-lyu/geodb-dbtoaster).
