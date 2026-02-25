@@ -1,11 +1,8 @@
 clean:
 	rm -rf *.png
 
-paper-ready: geo_btree/scale15/bgw0-dram0.1/queries-individual-less.png \
-			  geo_lsm/scale40/bgw0-dram0.1/queries-individual-less.png \
-			  geo_btree/scale15/update-less.png
+paper-ready: plots
 	mkdir -p paper-ready
-# 	cp geo_btree/scale15/bgw0-dram0.1/queries-individual-less.png paper-ready/btree_summary.png
 	cp geo_lsm/scale40/bgw0-dram0.1/queries-individual-less.png paper-ready/lsm_summary.png
 	cp geo_lsm/scale40/bgw0-dram0.1/cpu_utilization.png paper-ready/lsm_cpu_utilization.png
 	cp geo_btree/scale15/update-less.png paper-ready/btree_update_summary.png
@@ -14,3 +11,18 @@ paper-ready: geo_btree/scale15/bgw0-dram0.1/queries-individual-less.png \
 	cp geo_btree/scale15/bgw0-dram0.1/update-size.png paper-ready/btree_update_size.png
 	cp geo_btree/scale15/bgw0-dram0.1/queries-join.png paper-ready/btree_join.png
 	cp geo_btree/scale15/bgw0-dram0.1/cpu_utilization.png paper-ready/btree_cpu_utilization.png
+
+geo_btree/TPut.csv: docker_run.sh docker_geodb docker_geodb_dbtoaster
+	./docker_run.sh
+
+geo_lsm/TPut.csv: docker_run.sh docker_geodb docker_geodb_dbtoaster
+	./docker_run.sh
+
+docker_geodb:
+	docker pull ghcr.io/alicia-lyu/geodb-dbtoaster:latest
+
+docker_geodb_dbtoaster:
+	docker pull ghcr.io/alicia-lyu/geodb:latest
+
+plots: geo_btree/TPut.csv geo_lsm/TPut.csv
+	python main.py

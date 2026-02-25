@@ -2,3 +2,5 @@
 *.png
 *.tex
 .DS_Store
+!paper-ready/btree_cpu_utilization.png
+!paper-ready/lsm_cpu_utilization.png

@@ -1,3 +1,4 @@
+import argparse
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -172,10 +173,12 @@ class DataPerConfig:
             ]
             category = tx.split('-')[0]
             assert category in bucket_sort, f"Unknown tx category: {category}"
-            bucket_sort[category].append((
-                tx_df.groupby('method').mean()[y_label].round(3),
-                tx_df.groupby('method').mean()[cpu_label].round(1),
-            ))
+            y_mean = tx_df.groupby('method').mean()[y_label].round(3)
+            data = [y_mean.rename(index=METHOD_RENAME)]
+            if cpu_label in tx_df.columns:
+                cpu_mean = tx_df.groupby('method').mean()[cpu_label].round(1)
+                data.append(cpu_mean.rename(index=METHOD_RENAME))
+            bucket_sort[category].append(tuple(data))
 
         def _build_df(rows: dict) -> pd.DataFrame:
             frame = pd.DataFrame(rows).T
@@ -191,13 +194,22 @@ class DataPerConfig:
                 assert len(series_list) <= 1, "Expected at most one maintain tx"
                 if series_list:
                     tput_rows['Update'] = series_list[0][0]
-                    cpu_rows['Update']  = series_list[0][1]
+                    if len(series_list[0]) > 1:
+                        cpu_rows['Update']  = series_list[0][1]
+                    else:
+                        cpu_rows['Update']  = pd.Series(dtype=float)  # Empty series if no CPU data
                 continue
-            for tput_s, cpu_s in series_list:
+            for series_tuple in series_list:
+                if len(series_tuple) == 1:
+                    tput_s = series_tuple[0]
+                    cpu_s = pd.Series(dtype=float)  # Empty series if no CPU data
+                else:
+                    tput_s, cpu_s = series_tuple
                 tx_count += 1
                 label = f"Q{tx_count} {query_suffix[category]}"
                 tput_rows[label] = tput_s
                 cpu_rows[label]  = cpu_s
+                
 
         return _build_df(tput_rows), _build_df(cpu_rows), y_label, unit
 
@@ -311,7 +323,7 @@ class BenchmarkAnalyzer:
         self.dir = Path(directory)
         if not self.dir.is_dir():
             raise FileNotFoundError(f"Directory not found: {self.dir}")
-        self.tput_df = pd.read_csv(self.dir / 'TPut.csv')
+        self.tput_df = pd.read_csv(self.dir / f'{self.dir.name}_TPut.csv')
         # Normalize 0.09 -> 0.1 (hash table adds ~0.01 GiB overhead)
         self.tput_df['DRAM (GiB)'] = self.tput_df['DRAM (GiB)'].replace(0.09, 0.1)
         self.dfs_per_config: dict = {}
