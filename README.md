@@ -14,7 +14,7 @@ Package prerequisites:
 - Pip
 - Run `pip install -r requirements.txt` to install the required Python packages.
 
-Simply run `make paper-ready` in the root directory. This will trigger a series of commands: 
+Simply run `make paper-ready` in the root directory. This will trigger a series of commands:
 
 - First, two docker images are pulled from GitHub Container Registry.
 - Then, two containers are created from the images and run experiments.
@@ -153,3 +153,84 @@ Their most notable differences in queries and updates between B-trees and LSM-tr
 
 - Range queries: Higher CPU utilization of LSM-tree for range queries penalizes disproportionately hash-based query-time execution (`trad_idx_hj`). Meanwhile, it benefits materialized views in a more subtle way—fast range scan offered by LSM-trees alleviates materialized views' disadvantage in scan volume, allowing them to even surpass merged indexes in Q1. In this specific case, the merged index may be occasionally CPU-bound due to record assembly (with 76.4% average CPU utilization), while the materialized view remains IO-bound (with 25.1% average CPU utilization).
 - Updates: LSM-trees significantly improve update performance for all methods, but they also pose a penalty for large updates due to compaction and write amplification, which disproportionately affects materialized views.
+
+### Configuration of Leanstore and RocksDB
+
+TODO
+
+## Additional Examples
+
+\section{Additional Examples}
+\subsection{Grouping before the joins}\label{app:grouping_before_joins}
+
+Query~\ref{lst:cust_mixed_single_table} summarizes the total order price and total invoice due for each customer. 
+Customer is joined on \texttt{custkey} with two single-table \texttt{COUNT} aggregates over Orders and Invoice, respectively.
+The grouping operations happen before the two binary joins.
+Since the grouping key, \texttt{custkey}, is the join key of the two binary joins, the joins and grouping operators all require sorting by \texttt{custkey}.
+
+\begin{queryblock}
+\begin{lstlisting}[
+    caption={Mixed query with aggregation before joins. Customer is joined on \texttt{custkey} with two single-table aggregates grouped by \texttt{custkey}, one on Orders and one on Invoice}, 
+    label={lst:cust_mixed_single_table}
+]
+WITH TotalPricePerOrder AS (
+    SELECT custkey, SUM(totalprice) AS total_order_price
+    FROM Orders
+    GROUP BY custkey
+), TotalInvoiceDue AS (
+    SELECT custkey, SUM(totaldue) AS total_invoice_due
+    FROM Invoice
+    GROUP BY custkey
+) SELECT custkey, cust_name, total_order_price, total_invoice_due
+FROM Customer AS c JOIN TotalPricePerOrder AS tpo
+    ON c.custkey = tpo.custkey
+JOIN TotalInvoiceDue AS tid 
+    ON c.custkey = tid.custkey
+\end{lstlisting}
+\end{queryblock}
+
+A traditional query optimizer may generate a plan with two sort-based grouping operators on \texttt{custkey} over Orders and Invoice, followed by the two merge joins.
+The intermediate results from the grouping operators and the first merge join are sorted on \texttt{custkey}.
+Sort operations are needed only on the base tables.
+
+On the other hand, a merged index storing the primary index of Customer and the secondary indexes on \texttt{custkey} of Orders and Invoice embeds this interesting ordering into physical storage.
+Both the joins and the grouping operations can consume the merged index without additional sort phases.
+In this merged index, each group or cluster corresponds to a customer, containing all their orders and invoices, exactly what the joins and grouping operations require.
+
+\subsection{Complex updates}\label{app:complex_updates}
+
+\begin{itemize}
+    \item \textbf{Updates with referential integrity check:} When inserting a child record (e.g., an \texttt{Order}), the database must verify the existence of the parent (\texttt{Customer}). In a merged index, these records are clustered. The check becomes a local seek or a check of the immediately preceding page, rather than a random lookup in a separate structure.
+    \item \begin{sloppypar}\textbf{Cascading deletes:} For schemas utilizing \texttt{ON DELETE CASCADE}, deleting a parent record implies deleting all children. In a merged index, child records are stored following the parent. A cascading delete operation is a single, efficient range delete operation, rather than multiple random deletions across different indexes.
+    \end{sloppypar} % fix overfull hbox from \texttt
+\end{itemize}
+
+\subsection{Algorithm for Aggregation Logic of Query~\ref{lst:geo_mixed}}\label{app:aggregation_logic}
+
+See Algorithm~\ref{alg:aggregation_logic} for the aggregation logic of Query~\ref{lst:geo_mixed}, which counts the number of cities per state and nation. The function \textsc{CountCityPerState} takes as input the buffered records during the range scan over an appropriate merged index, and outputs the aggregated result.
+
+\begin{algorithm}[htbp]
+    \small
+    \renewcommand{\algorithmiccomment}[1]{\hfill // \textit{#1}}
+    \algrenewcommand\algorithmicindent{1em}
+    \algnewcommand{\Assert}[1]{\State \textbf{assert} #1}
+    \caption{Aggregation Logic for Query~\ref{lst:geo_mixed}}
+    \label{alg:aggregation_logic}
+    \begin{algorithmic}[1]
+        \Function{CountCityPerState}{$B$}
+            \State $i_{\text{nation}} \leftarrow$ 1, $i_{\text{state}} \leftarrow$ 2, $i_{\text{county}} \leftarrow$ 3, $i_{\text{city}} \leftarrow$ 4
+
+            \If{$B[i_{\text{nation}}].\text{IsEmpty}() \lor B[i_{\text{state}}].\text{IsEmpty}()$}\Return $\text{empty}$
+            \EndIf
+
+            \Assert{$B[i_{\text{nation}}].\text{Size}() = 1 \land B[i_{\text{state}}].\text{Size}() = 1$}
+            \State $N \leftarrow B[i_{\text{nation}}].\text{First}()$
+            \State $S \leftarrow B[i_{\text{state}}].\text{First}()$
+            
+            \State $\text{city\_count} \leftarrow B[i_{\text{city}}].\text{Size}()$
+
+            \Return \{ $N$.nationkey, $N$.name, $S$.statekey, $S$.name, city\_count \}
+
+        \EndFunction
+    \end{algorithmic}
+\end{algorithm}
