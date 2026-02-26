@@ -14,7 +14,8 @@ Package prerequisites:
 - Pip
 - Run `pip install -r requirements.txt` to install the required Python packages.
 
-Simply run `make paper-ready` in the root directory. This will trigger a series of commands:
+Simply run `make paper-ready` in the root directory. We recommend running this command in a screen or tmux session, as the entire process may take around 2 hours to complete.
+This will trigger a series of commands:
 
 - First, two docker images are pulled from GitHub Container Registry.
 - Then, two containers are created from the images and run experiments.
@@ -160,19 +161,16 @@ TODO
 
 ## Additional Examples
 
-\section{Additional Examples}
-\subsection{Grouping before the joins}\label{app:grouping_before_joins}
+### Grouping before the joins
 
-Query~\ref{lst:cust_mixed_single_table} summarizes the total order price and total invoice due for each customer. 
-Customer is joined on \texttt{custkey} with two single-table \texttt{COUNT} aggregates over Orders and Invoice, respectively.
+Query 1 summarizes the total order price and total invoice due for each customer.
+`Customer` is joined on `custkey` with two single-table `COUNT` aggregates over `Orders` and `Invoice`, respectively.
 The grouping operations happen before the two binary joins.
-Since the grouping key, \texttt{custkey}, is the join key of the two binary joins, the joins and grouping operators all require sorting by \texttt{custkey}.
+Since the grouping key, `custkey`, is the join key of the two binary joins, the joins and grouping operators all require sorting by `custkey`.
 
-\begin{queryblock}
-\begin{lstlisting}[
-    caption={Mixed query with aggregation before joins. Customer is joined on \texttt{custkey} with two single-table aggregates grouped by \texttt{custkey}, one on Orders and one on Invoice}, 
-    label={lst:cust_mixed_single_table}
-]
+**Query 1: Mixed query with aggregation before joins. Customer is joined on `custkey` with two single-table aggregates grouped by `custkey`, one on `Orders` and one on `Invoice`**
+
+```sql
 WITH TotalPricePerOrder AS (
     SELECT custkey, SUM(totalprice) AS total_order_price
     FROM Orders
@@ -181,56 +179,43 @@ WITH TotalPricePerOrder AS (
     SELECT custkey, SUM(totaldue) AS total_invoice_due
     FROM Invoice
     GROUP BY custkey
-) SELECT custkey, cust_name, total_order_price, total_invoice_due
-FROM Customer AS c JOIN TotalPricePerOrder AS tpo
-    ON c.custkey = tpo.custkey
-JOIN TotalInvoiceDue AS tid 
-    ON c.custkey = tid.custkey
-\end{lstlisting}
-\end{queryblock}
+)
+SELECT c.custkey, c.cust_name, tpo.total_order_price, tid.total_invoice_due
+FROM Customer AS c
+JOIN TotalPricePerOrder AS tpo ON c.custkey = tpo.custkey
+JOIN TotalInvoiceDue AS tid ON c.custkey = tid.custkey
+```
 
-A traditional query optimizer may generate a plan with two sort-based grouping operators on \texttt{custkey} over Orders and Invoice, followed by the two merge joins.
-The intermediate results from the grouping operators and the first merge join are sorted on \texttt{custkey}.
+A traditional query optimizer may generate a plan with two sort-based grouping operators on `custkey` over `Orders` and `Invoice`, followed by the two merge joins.
+The intermediate results from the grouping operators and the first merge join are sorted on `custkey`.
 Sort operations are needed only on the base tables.
 
-On the other hand, a merged index storing the primary index of Customer and the secondary indexes on \texttt{custkey} of Orders and Invoice embeds this interesting ordering into physical storage.
+On the other hand, a merged index storing the primary index of `Customer` and the secondary indexes on `custkey` of `Orders` and `Invoice` embeds this interesting ordering into physical storage.
 Both the joins and the grouping operations can consume the merged index without additional sort phases.
 In this merged index, each group or cluster corresponds to a customer, containing all their orders and invoices, exactly what the joins and grouping operations require.
 
-\subsection{Complex updates}\label{app:complex_updates}
+<!-- ### Complex updates
 
-\begin{itemize}
-    \item \textbf{Updates with referential integrity check:} When inserting a child record (e.g., an \texttt{Order}), the database must verify the existence of the parent (\texttt{Customer}). In a merged index, these records are clustered. The check becomes a local seek or a check of the immediately preceding page, rather than a random lookup in a separate structure.
-    \item \begin{sloppypar}\textbf{Cascading deletes:} For schemas utilizing \texttt{ON DELETE CASCADE}, deleting a parent record implies deleting all children. In a merged index, child records are stored following the parent. A cascading delete operation is a single, efficient range delete operation, rather than multiple random deletions across different indexes.
-    \end{sloppypar} % fix overfull hbox from \texttt
-\end{itemize}
+-   **Updates with referential integrity check:** When inserting a child record (e.g., an `Order`), the database must verify the existence of the parent (`Customer`). In a merged index, these records are clustered. The check becomes a local seek or a check of the immediately preceding page, rather than a random lookup in a separate structure.
+-   **Cascading deletes:** For schemas utilizing `ON DELETE CASCADE`, deleting a parent record implies deleting all children. In a merged index, child records are stored following the parent. A cascading delete operation is a single, efficient range delete operation, rather than multiple random deletions across different indexes. -->
 
-\subsection{Algorithm for Aggregation Logic of Query~\ref{lst:geo_mixed}}\label{app:aggregation_logic}
+<!-- ### Algorithm for Aggregation Logic of Query 2
 
-See Algorithm~\ref{alg:aggregation_logic} for the aggregation logic of Query~\ref{lst:geo_mixed}, which counts the number of cities per state and nation. The function \textsc{CountCityPerState} takes as input the buffered records during the range scan over an appropriate merged index, and outputs the aggregated result.
+See Algorithm 1 for the aggregation logic of Query 2, which counts the number of cities per state and nation. The function `CountCityPerState` takes as input the buffered records during the range scan over an appropriate merged index, and outputs the aggregated result.
 
-\begin{algorithm}[htbp]
-    \small
-    \renewcommand{\algorithmiccomment}[1]{\hfill // \textit{#1}}
-    \algrenewcommand\algorithmicindent{1em}
-    \algnewcommand{\Assert}[1]{\State \textbf{assert} #1}
-    \caption{Aggregation Logic for Query~\ref{lst:geo_mixed}}
-    \label{alg:aggregation_logic}
-    \begin{algorithmic}[1]
-        \Function{CountCityPerState}{$B$}
-            \State $i_{\text{nation}} \leftarrow$ 1, $i_{\text{state}} \leftarrow$ 2, $i_{\text{county}} \leftarrow$ 3, $i_{\text{city}} \leftarrow$ 4
+**Algorithm 1: Aggregation Logic for Query 2**
+```
+function CountCityPerState(B):
+    i_nation ← 1, i_state ← 2, i_county ← 3, i_city ← 4
 
-            \If{$B[i_{\text{nation}}].\text{IsEmpty}() \lor B[i_{\text{state}}].\text{IsEmpty}()$}\Return $\text{empty}$
-            \EndIf
+    if B[i_nation].IsEmpty() or B[i_state].IsEmpty():
+        return empty
 
-            \Assert{$B[i_{\text{nation}}].\text{Size}() = 1 \land B[i_{\text{state}}].\text{Size}() = 1$}
-            \State $N \leftarrow B[i_{\text{nation}}].\text{First}()$
-            \State $S \leftarrow B[i_{\text{state}}].\text{First}()$
-            
-            \State $\text{city\_count} \leftarrow B[i_{\text{city}}].\text{Size}()$
+    assert B[i_nation].Size() = 1 and B[i_state].Size() = 1
+    N ← B[i_nation].First()
+    S ← B[i_state].First()
+    
+    city_count ← B[i_city].Size()
 
-            \Return \{ $N$.nationkey, $N$.name, $S$.statekey, $S$.name, city\_count \}
-
-        \EndFunction
-    \end{algorithmic}
-\end{algorithm}
+    return { N.nationkey, N.name, S.statekey, S.name, city_count }
+``` -->
