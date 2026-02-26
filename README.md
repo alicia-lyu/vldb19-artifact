@@ -162,7 +162,64 @@ Their most notable differences in queries and updates between B-trees and LSM-tr
 
 ### Configuration of Leanstore and RocksDB
 
-TODO
+#### LeanStore
+
+| Flag | Value | Description |
+|------|-------|-------------|
+| `isolation_level` | `ser` | Serializable isolation |
+| `mv` | `false` | Multi-version disabled |
+| `vi` | `false` | Version info for multi-versioning disabled |
+| `optimistic_scan` | `false` | Optimistic scan disabled (recovering and storing parent pointers in memory) |
+| `worker_threads` | `2` | Worker threads |
+| `pp_threads` | `1` | Page provider threads (buffer pool management etc) |
+| `dram_gib` | `0.1` | DRAM budget (GiB) |
+
+#### RocksDB
+
+All configurations are standard except for the ones listed below.
+
+Total memory budget = 0.1 GiB, split between block cache (80%) and memtable (20%). To enforce the memory budget, `strict_capacity_limit` of block cache is set to `true`, and `cache_index_and_filter_blocks` is set to `true` to count index and filter blocks in the block cache budget.
+The memtable budget is further split between write buffers (90%) and WAL (10%).
+
+##### Database Options
+
+| Option | Value | Description |
+|--------|-------|-------------|
+| `use_direct_reads` | `true` | Bypass OS page cache for reads |
+| `use_direct_io_for_flush_and_compaction` | `true` | Direct I/O during compaction/flush |
+| `max_background_jobs` | `1` | Single background compaction thread |
+| `stats_dump_period_sec` | `1` | Dump statistics every 1 second |
+
+##### Compaction and Compression
+
+| Option | Value | Description |
+|--------|-------|-------------|
+| `compression` | `kNoCompression` | No compression |
+| `compaction_style` | `kCompactionStyleLevel` | Level-based (tiered) compaction |
+| `target_file_size_base` | 1 MB | Base SST file target size (RocksDB default: 64 MB) |
+| `target_file_size_multiplier` | 2 | File size multiplier per level |
+
+##### Block Cache
+
+| Option | Value | Description |
+|--------|-------|-------------|
+| Cache type | LRU | Least-recently-used eviction |
+| `metadata_block_size` | 64 KB | Metadata block size (RocksDB default: 4 KB) |
+| `pin_l0_filter_and_index_blocks_in_cache` | `true` | Pin L0 filter/index blocks |
+
+##### Bloom Filter and Index
+
+| Option | Value | Description |
+|--------|-------|-------------|
+| `filter_policy` | Bloom filter, `bits_per_key=10` | Per-key bloom filter |
+| `index_type` | `kTwoLevelIndexSearch` | Two-level partitioned index |
+| `partition_filters` | `true` | Partitioned bloom filters |
+
+##### Memtable
+
+| Option | Value | Description |
+|--------|-------|-------------|
+| `max_write_buffer_number` | `10` | Max number of unflushed memtables |
 
 ## Additional Examples
 
