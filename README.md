@@ -29,7 +29,7 @@ This will trigger a series of commands:
 
 All experiment charts used in the paper and this README will be stored in the `paper-ready` directory.
 
-For details of the implementation of the docker images, please refer to [the main repository](https://github.com/alicia-lyu/leanstore) and [the DBToaster repository](https://github.com/alicia-lyu/geodb-dbtoaster).
+For details of the implementation of the docker images, including the code for experiments, please refer to [the main repository](https://github.com/alicia-lyu/leanstore) and [the DBToaster repository](https://github.com/alicia-lyu/geodb-dbtoaster).
 
 ## Technical Specification
 
