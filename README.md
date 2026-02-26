@@ -8,27 +8,27 @@ VM prerequisites:
 - At least 2 CPU cores
 - A modern Linux distribution (e.g., Ubuntu 22.04+, Debian 11+, or RHEL 8+). A Linux kernel version of 5.10 or higher.
 - ~10 GiB free RAM
-- 10+ GiB free disk (image files: ~2.5 GiB btree + ~1.5 GiB LSM)
+- 10+ GiB free disk
 - Network access
 
 Package prerequisites: 
 
-- Docker
-- Python 3
-- Pip or Conda
+- [Docker](https://docs.docker.com/engine/install/). Run `sudo docker run hello-world` to verify that Docker is installed and working correctly.
+- Run `getent group | grep docker`; `docker` group should exist. Then, add the current Linux user to the docker group: `sudo usermod -aG docker $USER; newgrp docker`.
+- Python 3 with Pip or [Conda](https://www.anaconda.com/docs/getting-started/miniconda/install#macos-linux-installation)
 
-The following instructions are recommended to be run in a Python virtual environment.
+The following instructions are recommended to be run in a Python virtual environment. (e.g., `conda create -n paper-ready python=3.10; conda activate paper-ready`).
 
 First, run `pip install -r requirements.txt` to install the required Python packages.
 
-Then, simply run `make paper-ready` in the root directory. We recommend running this command in a screen or tmux session, as the entire process may take around 2 hours to complete.
+Then, simply run `make paper-ready` in the root directory. We recommend running this command in a **screen or tmux session**, as the entire process may take around 2 hours to complete.
 This will trigger a series of commands:
 
 - First, two docker images are pulled from GitHub Container Registry.
 - Then, two containers are created from the images and run experiments.
 - Finally, plots are generated from the experiment results.
 
-All experiment charts used in the paper will be stored in the `paper-ready` directory. However, the CPU charts will not be generated; a previous run of CPU stats are used below and included in advance in the `paper-ready` directory.
+All experiment charts used in the paper will be stored in the `paper-ready` directory. However, the CPU charts used in this README will not be generated; a previous run of CPU stats are included in advance.
 The reason is the hassle required of the reviewers to run docker in previleged mode with `kernel.perf_event_paranoid=0` for CPU monitoring.
 However, the CPU charts are not central to the claims of the paper and not even included in the paper itself.
 
