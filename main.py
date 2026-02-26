@@ -322,7 +322,7 @@ class BenchmarkAnalyzer:
         self.dir = Path(directory)
         if not self.dir.is_dir():
             raise FileNotFoundError(f"Directory not found: {self.dir}")
-        self.tput_df = pd.read_csv(self.dir / f'{self.dir.name}_TPut.csv')
+        self.tput_df = pd.read_csv(self.dir / f'TPut.csv')
         # Normalize 0.09 -> 0.1 (hash table adds ~0.01 GiB overhead)
         self.tput_df['DRAM (GiB)'] = self.tput_df['DRAM (GiB)'].replace(0.09, 0.1)
         self.dfs_per_config: dict = {}

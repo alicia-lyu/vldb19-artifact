@@ -1,4 +1,4 @@
-.PHONY: clean paper-ready plots docker_geodb docker_geodb_dbtoaster
+.PHONY: clean paper-ready plots
 
 setup:
 	mkdir -p geo_btree geo_lsm
@@ -13,21 +13,14 @@ paper-ready: plots
 	cp geo_btree/scale15/update-less.png paper-ready/btree_update_summary.png
 	cp geo_btree/scale15/bgw0-dram0.1/queries-count.png paper-ready/btree_count.png
 	cp geo_btree/scale15/bgw0-dram0.1/queries-count-distinct.png paper-ready/btree_count_distinct.png
-	cp geo_btree/scale15/bgw0-dram0.1/update-size.png paper-ready/btree_update_size.png
 	cp geo_btree/scale15/bgw0-dram0.1/queries-join.png paper-ready/btree_join.png
 	cp geo_btree/scale15/bgw0-dram0.1/cpu_utilization.png paper-ready/btree_cpu_utilization.png
 
-geo_btree/TPut.csv: setup docker_run.sh docker_geodb docker_geodb_dbtoaster
+geo_btree/TPut.csv:
 	./docker_run.sh
 
-geo_lsm/TPut.csv: setup docker_run.sh docker_geodb docker_geodb_dbtoaster
+geo_lsm/TPut.csv:
 	./docker_run.sh
 
-docker_geodb:
-	docker pull ghcr.io/alicia-lyu/geodb:latest
-
-docker_geodb_dbtoaster:
-	docker pull ghcr.io/alicia-lyu/geodb-dbtoaster:latest
-
-plots: geo_btree/TPut.csv geo_lsm/TPut.csv
+plots: geo_btree/TPut.csv geo_lsm/TPut.csv setup
 	python main.py

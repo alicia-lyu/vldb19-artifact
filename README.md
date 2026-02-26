@@ -11,15 +11,20 @@ Package prerequisites:
 
 - Docker
 - Python 3
-- Pip
-- Run `pip install -r requirements.txt` to install the required Python packages.
+- Pip or Conda
 
-Simply run `make paper-ready` in the root directory. We recommend running this command in a screen or tmux session, as the entire process may take around 2 hours to complete.
+The following instructions are recommended to be run in a Python virtual environment.
+
+First, run `pip install -r requirements.txt` to install the required Python packages.
+
+Then, simply run `make paper-ready` in the root directory. We recommend running this command in a screen or tmux session, as the entire process may take around 2 hours to complete.
 This will trigger a series of commands:
 
 - First, two docker images are pulled from GitHub Container Registry.
 - Then, two containers are created from the images and run experiments.
-- Finally, plots are generated from the experiment results and moved to the `paper-ready` directory.
+- Finally, plots are generated from the experiment results.
+
+All experiment charts used in the paper and this README will be stored in the `paper-ready` directory.
 
 For details of the implementation of the docker images, please refer to [the main repository](https://github.com/alicia-lyu/leanstore) and [the DBToaster repository](https://github.com/alicia-lyu/geodb-dbtoaster).
 
