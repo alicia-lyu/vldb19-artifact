@@ -27,7 +27,9 @@ This will trigger a series of commands:
 - Then, two containers are created from the images and run experiments.
 - Finally, plots are generated from the experiment results.
 
-All experiment charts used in the paper and this README will be stored in the `paper-ready` directory.
+All experiment charts used in the paper will be stored in the `paper-ready` directory. However, the CPU charts will not be generated; a previous run of CPU stats are used below and included in advance in the `paper-ready` directory.
+The reason is the hassle required of the reviewers to run docker in previleged mode with `kernel.perf_event_paranoid=0` for CPU monitoring.
+However, the CPU charts are not central to the claims of the paper and not even included in the paper itself.
 
 For details of the implementation of the docker images, including the code for experiments, please refer to [the main repository](https://github.com/alicia-lyu/leanstore) and [the DBToaster repository](https://github.com/alicia-lyu/geodb-dbtoaster).
 
