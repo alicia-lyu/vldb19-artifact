@@ -32,6 +32,10 @@ All experiment charts used in the paper will be stored in the `paper-ready` dire
 The reason is the hassle required of the reviewers to run docker in previleged mode with `kernel.perf_event_paranoid=0` for CPU monitoring.
 However, the CPU charts are not central to the claims of the paper and not even included in the paper itself.
 
+Occasionally, LeanStore, due to its nature as a research prototype, may encounter a bug during the experiments, most often with materialized views.
+As long as this bug does not happen with RocksDB as well, it stems from the backend, not the experiment code.
+If this happens, run `make paper-ready` again to re-run all the experiments.
+
 For details of the implementation of the docker images, including the code for experiments, please refer to [the main repository](https://github.com/alicia-lyu/leanstore) and [the DBToaster repository](https://github.com/alicia-lyu/geodb-dbtoaster).
 
 ## Technical Specification
