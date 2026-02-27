@@ -4,11 +4,11 @@
 
 VM prerequisites:
 
-- x86_64 CPU with AVX2 (any post-2013 Intel/AMD)
-- At least 2 CPU cores
-- A modern Linux distribution (e.g., Ubuntu 22.04+, Debian 11+, or RHEL 8+). A Linux kernel version of 5.10 or higher.
+- x86_64 CPU with AVX2 support
+- 4 CPU cores
+- A modern Linux distribution (e.g., Ubuntu 22.04+, Debian 11+, or RHEL 8+). A Linux kernel version of 5.10 or higher. We ran the experiments on Ubuntu 22.04 with Linux kernel 5.15.
 - ~10 GiB free RAM
-- 10+ GiB free disk
+- 20+ GiB free disk
 - Network access
 
 Package prerequisites: 
@@ -21,7 +21,7 @@ The following instructions are recommended to be run in a Python virtual environ
 
 First, run `pip install -r requirements.txt` to install the required Python packages.
 
-Then, simply run `make paper-ready` in the root directory. We recommend running this command in a **screen or tmux session**, as the entire process may take around 2 hours to complete.
+Then, simply run `make paper-ready` in the root directory. We recommend running this command in a **screen or tmux session**, as the entire process may take up to 2 hours to complete.
 This will trigger a series of commands:
 
 - First, two docker images are pulled from GitHub Container Registry.
