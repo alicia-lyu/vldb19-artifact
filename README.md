@@ -8,7 +8,7 @@ VM prerequisites:
 - At least 2 CPU cores
 - A modern Linux distribution (e.g., Ubuntu 22.04+, Debian 11+, or RHEL 8+). A Linux kernel version of 5.10 or higher.
 - ~10 GiB free RAM
-- 10+ GiB free disk (image files: ~2.5 GiB btree + ~1.5 GiB LSM)
+- 20+ GiB free disk space
 - Network access
 
 Package prerequisites: 
