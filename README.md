@@ -4,33 +4,37 @@
 
 VM prerequisites:
 
-- x86_64 CPU with AVX2 (any post-2013 Intel/AMD)
-- At least 2 CPU cores
-- A modern Linux distribution (e.g., Ubuntu 22.04+, Debian 11+, or RHEL 8+). A Linux kernel version of 5.10 or higher.
+- x86_64 CPU with AVX2 support
+- 4 CPU cores
+- A modern Linux distribution (e.g., Ubuntu 22.04+, Debian 11+, or RHEL 8+). A Linux kernel version of 5.10 or higher. We ran the experiments on Ubuntu 22.04 with Linux kernel 5.15.
 - ~10 GiB free RAM
 - 20+ GiB free disk space
 - Network access
 
 Package prerequisites: 
 
-- Docker
-- Python 3
-- Pip or Conda
+- [Docker](https://docs.docker.com/engine/install/). Run `sudo docker run hello-world` to verify that Docker is installed and working correctly.
+- Run `getent group | grep docker`; `docker` group should exist. Then, add the current Linux user to the docker group: `sudo usermod -aG docker $USER; newgrp docker`.
+- Python 3 with Pip or [Conda](https://www.anaconda.com/docs/getting-started/miniconda/install#macos-linux-installation)
 
-The following instructions are recommended to be run in a Python virtual environment.
+The following instructions are recommended to be run in a Python virtual environment. (e.g., `conda create -n paper-ready python=3.10; conda activate paper-ready`).
 
 First, run `pip install -r requirements.txt` to install the required Python packages.
 
-Then, simply run `make paper-ready` in the root directory. We recommend running this command in a screen or tmux session, as the entire process may take around 2 hours to complete.
+Then, simply run `make paper-ready` in the root directory. We recommend running this command in a **screen or tmux session**, as the entire process may take up to 2 hours to complete.
 This will trigger a series of commands:
 
 - First, two docker images are pulled from GitHub Container Registry.
 - Then, two containers are created from the images and run experiments.
 - Finally, plots are generated from the experiment results.
 
-All experiment charts used in the paper will be stored in the `paper-ready` directory. However, the CPU charts will not be generated; a previous run of CPU stats are used below and included in advance in the `paper-ready` directory.
+All experiment charts used in the paper will be stored in the `paper-ready` directory. However, the CPU charts used in this README will not be generated; a previous run of CPU stats are included in advance.
 The reason is the hassle required of the reviewers to run docker in previleged mode with `kernel.perf_event_paranoid=0` for CPU monitoring.
 However, the CPU charts are not central to the claims of the paper and not even included in the paper itself.
+
+Occasionally, LeanStore, due to its nature as a research prototype, may encounter a bug during the experiments, most often with materialized views.
+As long as this bug does not happen with RocksDB as well, it stems from the backend, not the experiment code.
+If this happens, run `make paper-ready` again to re-run all the experiments.
 
 For details of the implementation of the docker images, including the code for experiments, please refer to [the main repository](https://github.com/alicia-lyu/leanstore) and [the DBToaster repository](https://github.com/alicia-lyu/geodb-dbtoaster).
 
