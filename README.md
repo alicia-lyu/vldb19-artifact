@@ -11,7 +11,7 @@ VM prerequisites:
 - 20+ GiB free disk space
 - Network access
 
-Package prerequisites: 
+Package prerequisites:
 
 - [Docker](https://docs.docker.com/engine/install/). Run `sudo docker run hello-world` to verify that Docker is installed and working correctly.
 - Run `getent group | grep docker`; `docker` group should exist. Then, add the current Linux user to the docker group: `sudo usermod -aG docker $USER; newgrp docker`.
@@ -29,7 +29,7 @@ This will trigger a series of commands:
 - Finally, plots are generated from the experiment results.
 
 All experiment charts used in the paper will be stored in the `paper-ready` directory. However, the CPU charts used in this README will not be generated; a previous run of CPU stats are included in advance.
-The reason is the hassle required of the reviewers to run docker in previleged mode with `kernel.perf_event_paranoid=0` for CPU monitoring.
+The reason is the hassle required of the reviewers to run docker in privileged mode with `kernel.perf_event_paranoid=0` for CPU monitoring.
 However, the CPU charts are not central to the claims of the paper and not even included in the paper itself.
 
 Occasionally, LeanStore, due to its nature as a research prototype, may encounter a bug during the experiments, most often with materialized views.
@@ -159,7 +159,7 @@ For Q5 and Q6, the materialized view pre-joins all tables except `Customer`. A s
 | `vi` | `false` | Version info for multi-versioning disabled |
 | `optimistic_scan` | `false` | Optimistic scan disabled (recovering and storing parent pointers in memory) |
 | `worker_threads` | `2` | Worker threads |
-| `pp_threads` | `1` | Page provider threads (buffer pool management etc) |
+| `pp_threads` | `1` | Page provider threads (buffer pool management etc.) |
 | `dram_gib` | `0.1` | DRAM budget (GiB) |
 
 #### RocksDB
