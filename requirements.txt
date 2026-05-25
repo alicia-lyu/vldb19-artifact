@@ -1,0 +1,6 @@
+pandas
+numpy
+matplotlib
+seaborn
+Jinja2
+PyYAML
