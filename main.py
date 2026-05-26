@@ -165,14 +165,11 @@ FIGURES: List[Figure] = [
 ]
 
 
-def build_space_table(ctx: Ctx) -> Optional[Path]:
-    """Table 3 (DB sizes). Output is .tex; copied alongside the PDFs."""
-    _ensure_summary(ctx, "headline-ssd")
-    out_tex = ctx.out / "exp-baselines.tex"
-    _run(["python3", str(ctx.script("space_table.py")),
-          "--tag", "headline-ssd", "--root", str(ctx.results),
-          "--out", str(out_tex)])
-    return out_tex if out_tex.exists() else None
+# Table 3 (`tab:exp-baselines` DB sizes) is hand-typed in the tex from
+# `space_table.py`'s stdout; that script hardcodes its SOURCES against
+# leanstore/paper-data/ tags and doesn't accept --root, so it's not
+# wired into the artifact flow. Run it manually against a leanstore
+# checkout when refreshing the table.
 
 
 # ---------------------------------------------------------------------------
@@ -220,12 +217,6 @@ def main() -> int:
         dest = ctx.out / fig.out_name
         shutil.copyfile(src, dest)
         print(f"[main] {fig.out_name} <- {src}")
-
-    try:
-        build_space_table(ctx)
-    except subprocess.CalledProcessError as e:
-        print(f"[main] exp-baselines.tex: builder failed ({e})", file=sys.stderr)
-        failures.append("exp-baselines.tex")
 
     if failures:
         print(f"[main] {len(failures)} figure(s) missing: {failures}",
