@@ -62,9 +62,9 @@ depends on them.
    [`LINUX_SETUP.md`](https://github.com/alicia-lyu/leanstore/blob/main/LINUX_SETUP.md).
 
 3. **HDD mount** at `/mnt/hdd` (or set `HDD_MOUNT`) — required only for
-   the supplementary `tpch-headline-hdd` cell (Fig. `tpch_lsm_headline_hdd`).
-   Use `LABEL=leanstore-hdd` with the same fstab pattern. Pass
-   `--skip-hdd` to skip the cell entirely.
+   the supplementary `tpch-headline-hdd` cell (Fig. `paper_tpch_lsm_headline_hdd`).
+   Use `LABEL=leanstore-hdd` with the same fstab pattern. Without an HDD
+   mount the cell is skipped automatically.
 
 4. **Disk space**: the per-structure LeanStore image files dominate. The
    `tpch-headline` cell builds both families (vanilla + Invoice-extended) for
@@ -81,7 +81,10 @@ depends on them.
    (S5/S7 add no disk — they share the S3/S2 images.) For a quick check without
    the full footprint, use `./docker_run.sh --smoke` (a few GiB at SF 380/150).
 
-5. **RAM**: ~10 GiB free (LeanStore runs with `--dram_gib=1.0` by default).
+5. **RAM**: ~10 GiB free is plenty. The sweep deliberately caps the engine
+   DRAM budget per run (`--dram_gib` 0.1–1.0; beyond-memory operation is the
+   point being measured), so a large-memory machine is **not** required — the
+   authors' 160 GiB box is incidental, not a prerequisite.
 
 6. **ISA floor**: AVX2. The image is compiled with `-march=haswell`; no
    AVX-512 is baked in. Any post-2013 Intel/AMD CPU works.
@@ -115,15 +118,21 @@ shaped subtree (`manifest.yaml` + `raw/` + `summary/`) under
 
 | Cell                | Figures                                         | Walltime (c220g2, 5 reps) | Notes                                   |
 |---------------------|-------------------------------------------------|---------------------------|-----------------------------------------|
-| `tpch-headline`     | Fig. 4a, 4b, `diag_ssd_lsm_sst_path` (suppl.)   | ~4 h                      | SSD; btree + LSM; sstables.csv captured |
-| `tpch-headline-hdd` | `tpch_lsm_headline_hdd` (suppl.)                | ~2 h                      | HDD; LSM only                           |
-| `refresh`           | Fig. 7 (`refresh_lsm_vs_btree`)                 | ~1 h                      | RF1/RF2 update sweep; both backends     |
-| `dbtoaster`         | refresh overlay column                          | ~30 min                   | In-memory DBToaster baseline            |
+| `tpch-headline`     | Fig. 4a, 4b, 5 (q10), `diag_ssd_lsm_sst_path` (suppl.) | ~14 h         | SSD; btree + LSM; q3/q5/q10 families; sstables.csv captured |
+| `tpch-headline-hdd` | `paper_tpch_lsm_headline_hdd` (suppl.)          | ~6 h                      | HDD; LSM only; skipped if no HDD mount   |
+| `refresh`           | Fig. 7 (`refresh_lsm_vs_btree`)                 | ~3 h                      | RF1/RF2 update sweep; both backends     |
+| `dbtoaster`         | refresh overlay column                          | ~45 min                   | In-memory DBToaster baseline            |
 | `plots`             | all PDFs + macros                               | ~5 min                    | Pure post-processing                    |
 
-> Fig. 5 (`q10.pdf`) is produced by a dedicated q10 cell that is being wired up;
-> until it lands, `q10.pdf` renders empty. See the `TODO(q10)` in
-> [`docker_run.sh`](docker_run.sh).
+End-to-end is **≈ 24 h at paper SF** (SF 4000 btree / 10000 lsm, 5 reps) on a
+c220g2 — the per-structure image loads dominate. The `tpch-headline-hdd` cell
+(~6 h) is **optional**: it needs a rotational HDD and is auto-skipped without
+one, so a reviewer with only an SSD reproduces the main results in **≈ 18 h**.
+Use `--smoke` (SF=15, 1 rep) for a few-minute validation of the whole pipeline
+first.
+
+Fig. 5 (`paper_q10.pdf`) is produced by the `tpch-headline` cell — the
+q3/q5/q10 vanilla and q3i/q5i/q10i invoice families sweep together.
 
 Env knobs accepted by all cells:
 
@@ -133,13 +142,9 @@ Env knobs accepted by all cells:
 | `SSD_MOUNT`  | `/mnt/ssd`  | SSD bind-mount point                               |
 | `HDD_MOUNT`  | `/mnt/hdd`  | HDD bind-mount point                               |
 
-### Skipping cells
-
-```bash
-./docker_run.sh --skip-hdd          # skip the supplementary HDD figure
-./docker_run.sh --skip-refresh     # skip the refresh cell (Fig. 7)
-./docker_run.sh --skip-dbtoaster   # skip the DBToaster baseline
-```
+The `tpch-headline-hdd` cell runs only when `$HDD_MOUNT` is a real mount;
+without an HDD it is skipped automatically (the supplementary HDD figure is
+simply absent).
 
 For a fast end-to-end sanity check before the multi-hour run, add `--smoke`
 (each cell runs its smallest configuration; figures come out sparse but the
@@ -153,11 +158,11 @@ full pull → cells → plots path completes in minutes):
 
 After `make paper-ready` finishes, `paper-ready/` contains:
 
-- `tpch_btree_headline.pdf` — Fig. 4a (B-tree headline throughput)
-- `tpch_lsm_headline.pdf` — Fig. 4b (LSM headline throughput)
-- `q10.pdf` — Fig. 5 (Q10 / Q10i breakdown; empty until the q10 cell is wired)
-- `refresh_lsm_vs_btree.pdf` — Fig. 7 (LSM vs. B-tree refresh; absent only with `--skip-refresh`)
-- `tpch_lsm_headline_hdd.pdf` — supplementary HDD figure (absent if `--skip-hdd`)
+- `paper_tpch_btree_headline.pdf` — Fig. 4a (B-tree headline throughput)
+- `paper_tpch_lsm_headline.pdf` — Fig. 4b (LSM headline throughput)
+- `paper_q10.pdf` — Fig. 5 (Q10 / Q10i breakdown)
+- `refresh_lsm_vs_btree.pdf` — Fig. 7 (LSM vs. B-tree refresh)
+- `paper_tpch_lsm_headline_hdd.pdf` — supplementary HDD figure (absent if no HDD mount)
 - `paper_lsm_sst_path.pdf` — supplementary SST diagnostics
 - `experiment_numbers.json` — all `\auto*` macro values
 - `experiment_numbers.tex` — LaTeX macro definitions

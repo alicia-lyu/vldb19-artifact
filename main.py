@@ -11,12 +11,12 @@ this script is a thin convenience wrapper around its outputs.
 Expected layout after ``docker_run.sh`` completes:
 
     $RESULTS/paper-ready/
-      tpch_btree_headline.pdf     (Fig. 4a)
-      tpch_lsm_headline.pdf       (Fig. 4b)
-      q10.pdf                     (Fig. 5)
-      refresh_lsm_vs_btree.pdf    (Fig. 7)  [absent only when --skip-refresh]
-      tpch_lsm_headline_hdd.pdf   (supplementary)
-      paper_lsm_sst_path.pdf      (supplementary)
+      paper_tpch_btree_headline.pdf    (Fig. 4a)
+      paper_tpch_lsm_headline.pdf      (Fig. 4b)
+      paper_q10.pdf                    (Fig. 5)
+      refresh_lsm_vs_btree.pdf         (Fig. 7)
+      paper_tpch_lsm_headline_hdd.pdf  (supplementary; absent if no HDD mount)
+      paper_lsm_sst_path.pdf           (supplementary)
       experiment_numbers.json
       experiment_numbers.tex
       space_table.txt
