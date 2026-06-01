@@ -8,7 +8,10 @@
 #   - Docker Engine >= 24
 #   - SSD (ROTA=0) mounted at $SSD_MOUNT (default: /mnt/ssd)
 #   - HDD mounted at $HDD_MOUNT (default: /mnt/hdd) -- only for tpch-headline-hdd
-#   - ~10 GiB free RAM; ~30 GiB free disk for result CSVs
+#   - ~10 GiB free RAM
+#   - ~300 GiB free on the SSD (per-structure image files dominate: both
+#     families x both backends x S1-S4 ~= 230 GiB peak; see README §Disk space).
+#     The HDD cell needs ~100 GiB free on /mnt/hdd. Use --smoke for a few-GiB run.
 #
 # Note: kernel.perf_event_paranoid is NOT required. Binaries run regardless;
 #       only perf-counter columns in raw CSVs come out blank when the sysctl

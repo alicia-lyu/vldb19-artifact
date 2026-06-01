@@ -66,7 +66,20 @@ depends on them.
    Use `LABEL=leanstore-hdd` with the same fstab pattern. Pass
    `--skip-hdd` to skip the cell entirely.
 
-4. **Disk space**: ~30 GiB free on the SSD for image files + result CSVs.
+4. **Disk space**: the per-structure LeanStore image files dominate. The
+   `tpch-headline` cell builds both families (vanilla + Invoice-extended) for
+   both backends at S1–S4, all co-resident on the SSD:
+
+   | Backend | SF | Images (2 families × S1–S4) |
+   |---------|------|-----------------------------|
+   | B-tree  | 4000  | ~132 GiB |
+   | LSM     | 10000 | ~99 GiB  |
+
+   Budget **≥ 300 GiB free on `/mnt/ssd`** (≈230 GiB peak + a transient
+   per-structure refresh copy + result CSVs + headroom). The `tpch-headline-hdd`
+   cell writes LSM images to `/mnt/hdd` and needs **~100 GiB free there**.
+   (S5/S7 add no disk — they share the S3/S2 images.) For a quick check without
+   the full footprint, use `./docker_run.sh --smoke` (a few GiB at SF 380/150).
 
 5. **RAM**: ~10 GiB free (LeanStore runs with `--dram_gib=1.0` by default).
 
@@ -178,9 +191,10 @@ make clean         # remove paper-ready/ and results/
 - **`SIGILL` inside the container** — the image requires AVX2. Check
   `grep avx2 /proc/cpuinfo`. On CloudLab `c220g2` this is always
   present; on older hardware it may not be.
-- **Sweep stalls at load phase** — the load phase writes LeanStore
-  image files to the SSD mount. Confirm the SSD is mounted and has
-  at least 10 GiB free.
+- **Sweep stalls / fails at load phase** — the load phase writes the
+  per-structure LeanStore image files to the SSD mount (~230 GiB total
+  for `tpch-headline`; see §Host prerequisites). Confirm the SSD is
+  mounted and has enough free space (`df -h /mnt/ssd`).
 - **Re-running a single cell after failure**:
 
   ```bash
