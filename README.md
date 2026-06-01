@@ -85,7 +85,9 @@ under `results/`) and then `main.py` (copies tex-referenced PDFs and
 macros into `paper-ready/`). Expected end-to-end wall-clock is *TBD —
 flag for confirmation post-sweep*.
 
-Pinned image digest (verify with `docker inspect`):
+Pinned image digest (verify with `docker inspect`) — **TODO: fill in once the
+camera-ready image is pushed to GHCR** (`docker inspect --format
+'{{index .RepoDigests 0}}' ghcr.io/alicia-lyu/leanstore:vldb26`):
 
 ```
 ghcr.io/alicia-lyu/leanstore:vldb26@sha256:<digest-here>
@@ -100,11 +102,15 @@ shaped subtree (`manifest.yaml` + `raw/` + `summary/`) under
 
 | Cell                | Figures                                         | Walltime (c220g2, 5 reps) | Notes                                   |
 |---------------------|-------------------------------------------------|---------------------------|-----------------------------------------|
-| `tpch-headline`     | Fig. 4a, 4b, 5, `diag_ssd_lsm_sst_path` (suppl.)| ~4 h                      | SSD; btree + LSM; sstables.csv captured |
+| `tpch-headline`     | Fig. 4a, 4b, `diag_ssd_lsm_sst_path` (suppl.)   | ~4 h                      | SSD; btree + LSM; sstables.csv captured |
 | `tpch-headline-hdd` | `tpch_lsm_headline_hdd` (suppl.)                | ~2 h                      | HDD; LSM only                           |
-| `refresh`           | Fig. 6, Fig. 7                                  | —                         | **Known gap** — see below               |
+| `refresh`           | Fig. 7 (`refresh_lsm_vs_btree`)                 | ~1 h                      | RF1/RF2 update sweep; both backends     |
 | `dbtoaster`         | refresh overlay column                          | ~30 min                   | In-memory DBToaster baseline            |
 | `plots`             | all PDFs + macros                               | ~5 min                    | Pure post-processing                    |
+
+> Fig. 5 (`q10.pdf`) is produced by a dedicated q10 cell that is being wired up;
+> until it lands, `q10.pdf` renders empty. See the `TODO(q10)` in
+> [`docker_run.sh`](docker_run.sh).
 
 Env knobs accepted by all cells:
 
@@ -118,8 +124,16 @@ Env knobs accepted by all cells:
 
 ```bash
 ./docker_run.sh --skip-hdd          # skip the supplementary HDD figure
-./docker_run.sh --skip-refresh     # skip refresh (already a no-op gap)
+./docker_run.sh --skip-refresh     # skip the refresh cell (Fig. 7)
 ./docker_run.sh --skip-dbtoaster   # skip the DBToaster baseline
+```
+
+For a fast end-to-end sanity check before the multi-hour run, add `--smoke`
+(each cell runs its smallest configuration; figures come out sparse but the
+full pull → cells → plots path completes in minutes):
+
+```bash
+./docker_run.sh --smoke
 ```
 
 ### Expected outputs
@@ -128,9 +142,8 @@ After `make paper-ready` finishes, `paper-ready/` contains:
 
 - `tpch_btree_headline.pdf` — Fig. 4a (B-tree headline throughput)
 - `tpch_lsm_headline.pdf` — Fig. 4b (LSM headline throughput)
-- `q10.pdf` — Fig. 5 (Q10 / Q10i breakdown)
-- `refresh_5L_pair_latency.pdf` — Fig. 6 (RF pair latency; absent if refresh skipped)
-- `refresh_lsm_vs_btree.pdf` — Fig. 7 (LSM vs. B-tree refresh; absent if refresh skipped)
+- `q10.pdf` — Fig. 5 (Q10 / Q10i breakdown; empty until the q10 cell is wired)
+- `refresh_lsm_vs_btree.pdf` — Fig. 7 (LSM vs. B-tree refresh; absent only with `--skip-refresh`)
 - `tpch_lsm_headline_hdd.pdf` — supplementary HDD figure (absent if `--skip-hdd`)
 - `paper_lsm_sst_path.pdf` — supplementary SST diagnostics
 - `experiment_numbers.json` — all `\auto*` macro values
@@ -139,8 +152,11 @@ After `make paper-ready` finishes, `paper-ready/` contains:
 
 ### Verifying numbers
 
+Compare the regenerated macros against the camera-ready values committed in
+the paper source repo (`sections/experiment_numbers.json` in the LaTeX tree):
+
 ```bash
-diff -u sections/experiment_numbers.json \
+diff -u /path/to/paper/sections/experiment_numbers.json \
         paper-ready/experiment_numbers.json
 ```
 
@@ -156,46 +172,6 @@ make paper-ready   # docker_run.sh + main.py (full end-to-end)
 make plots         # main.py only (skip sweep if stamp exists)
 make clean         # remove paper-ready/ and results/
 ```
-
-### Known gaps
-
-#### Sweep runner flags not yet wired (`--root`, `--backends`, `--disk`)
-
-The dispatcher (`experiments/docker_entrypoint.sh` in the leanstore
-repo) invokes `run_paper_sweep.sh` with `--root /results/<cell>`, and
-for the HDD cell also `--backends lsm --disk hdd`. None of those three
-flags exist today; `data_disk` is hardcoded to `/mnt/ssd` and output
-goes to the in-tree `paper-data/<tag>/` directory.
-
-**Impact**: `tpch-headline` and `tpch-headline-hdd` sweeps will run,
-but the resulting `paper-data/<cell>/` tree lives inside the container
-filesystem at `/leanstore/paper-data/` rather than under the mounted
-`/results/<cell>/`, so the `plots` cell will not find the data.
-
-**Linux follow-up**: see `LINUX_PENDING.md` in the leanstore repo.
-
-#### Refresh figures (Fig. 6 and Fig. 7) cannot be automatically reproduced
-
-The refresh sweep requires a dedicated runner that invokes the
-LeanStore binary in RF1+RF2 update mode, recovers from per-structure
-image copies, drops OS page caches between runs, and emits the
-`raw/<cell>/<backend>.s<N>.csv` layout consumed by
-`paper-data/scripts/summarize_refresh_10L.py`. This runner
-(`build/scratch/run_refresh_10L_*.sh` on the author's Linux machine)
-was not committed to the source repo. The `refresh` cell in
-`docker_entrypoint.sh` exits with an error when invoked.
-
-**Impact**: `refresh_5L_pair_latency.pdf` (Fig. 6) and
-`refresh_lsm_vs_btree.pdf` (Fig. 7) will be absent from `paper-ready/`.
-All other figures and all `experiment_numbers.json` macro values are
-unaffected.
-
-**Workaround for committee members**: The authoring-run CSVs and
-figures are included in the supplementary material at
-`paper-data/2026-05-30-refresh-10L/` in the leanstore source repo.
-
-**Linux follow-up**: See `LINUX_PENDING.md` in the leanstore repo for
-the tracked item to commit `experiments/run_refresh_sweep.sh`.
 
 ### Troubleshooting
 
@@ -504,9 +480,10 @@ two columns of that comparison.
 
 Q5 is the most demanding (six-table) query in the workload. The four
 LeanStore plans — one per structure label (`Base-Hash`, `Base-Merge`,
-`Mat-View`, `Merged-Idx`) — are reproduced in the `q5-plans/` directory
-of this repository in LeanStore plan-dump format. They are referenced
-from the response document at `response.tex:231` and `response.tex:272`.
+`Mat-View`, `Merged-Idx`) — are provided as LeanStore plan-dump files
+alongside the paper source (`q5-plans/` in the response material),
+referenced from the response document at `response.tex:231` and
+`response.tex:272`.
 
 ### Calcite optimizer prototype (external)
 
@@ -597,5 +574,8 @@ listed here for inspection and rebuild.
 DBToaster is no longer a separate image — it lives in
 `leanstore/dbtoaster/` and is built as part of the single artifact
 image (CMake project bundled by the root `Dockerfile`). It contributes
-only the 9 GiB column of `refresh_5L_pair_latency`
-(`results/dbtoaster/update_times.csv`); rerun via `CELL=dbtoaster`.
+the DBToaster baseline numbers in `experiment_numbers.json`
+(`dbtoaster_pair_tps`, `dbtoaster_peak_rss`, and the
+`matview_pair_tps_10ll` / `merged_pair_tps_10ll` comparison), from
+`results/dbtoaster/summary/refresh_sales_dbtoaster_throughput.csv`;
+rerun via `CELL=dbtoaster`.

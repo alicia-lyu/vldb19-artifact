@@ -4,7 +4,7 @@
 # Pulls the pre-built image, runs each sweep cell in sequence, and
 # produces paper-ready PDFs and macros under $RESULTS/paper-ready/.
 #
-# Prerequisites (see REPRODUCE.md §Host prerequisites for details):
+# Prerequisites (see README.md §Host prerequisites for details):
 #   - Docker Engine >= 24
 #   - SSD (ROTA=0) mounted at $SSD_MOUNT (default: /mnt/ssd)
 #   - HDD mounted at $HDD_MOUNT (default: /mnt/hdd) -- only for tpch-headline-hdd
@@ -16,7 +16,13 @@
 #
 # Usage:
 #   ./docker_run.sh [--results DIR] [--ssd /mnt/ssd] [--hdd /mnt/hdd]
-#                  [--reps N] [--skip-hdd] [--skip-refresh] [--skip-dbtoaster]
+#                  [--reps N] [--smoke] [--skip-hdd] [--skip-refresh] [--skip-dbtoaster]
+#
+#   --smoke   Fast end-to-end validation (SMOKE=1): each cell runs its smallest
+#             configuration (c2 / 10HH, all structures, 1 rep) so the whole
+#             pipeline — pull → all cells → plots — completes in minutes.
+#             Figures come out sparse but complete; use it to sanity-check the
+#             host + image before committing to the multi-hour full sweep.
 #
 # Env overrides (alternative to flags):
 #   RESULTS       output directory (default: ./results)
@@ -32,6 +38,7 @@ RESULTS="${RESULTS:-$(pwd)/results}"
 SSD_MOUNT="${SSD_MOUNT:-/mnt/ssd}"
 HDD_MOUNT="${HDD_MOUNT:-/mnt/hdd}"
 REPS="${REPS:-5}"
+SMOKE=0
 SKIP_HDD=0
 SKIP_REFRESH=0
 SKIP_DBTOASTER=0
@@ -47,6 +54,7 @@ while [[ $# -gt 0 ]]; do
         --ssd)            SSD_MOUNT="$2";   shift 2 ;;
         --hdd)            HDD_MOUNT="$2";   shift 2 ;;
         --reps)           REPS="$2";        shift 2 ;;
+        --smoke)          SMOKE=1;          shift   ;;
         --skip-hdd)       SKIP_HDD=1;       shift   ;;
         --skip-refresh)   SKIP_REFRESH=1;   shift   ;;
         --skip-dbtoaster) SKIP_DBTOASTER=1; shift   ;;
@@ -58,6 +66,19 @@ done
 mkdir -p "$RESULTS"
 
 log() { echo "[docker_run] $(date '+%H:%M:%S') $*"; }
+
+# SMOKE=1 is forwarded into every cell for a fast small-scale validation run.
+SMOKE_ENV=()
+[[ "$SMOKE" -eq 1 ]] && SMOKE_ENV=(-e SMOKE=1)
+
+# Host-side pre-check: the SSD mount must be a real bind-mount (the in-container
+# entrypoint fails fast otherwise; this just gives a clearer message up front).
+if ! mountpoint -q "$SSD_MOUNT"; then
+    echo "[docker_run] ERROR: SSD mount '$SSD_MOUNT' is not a mounted filesystem." >&2
+    echo "[docker_run]        Mount an SSD there (see README §Host prerequisites)" >&2
+    echo "[docker_run]        or pass --ssd <path>." >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Pull the image once.
@@ -83,6 +104,7 @@ run_cell() {
     docker run --rm \
         -e CELL="$cell" \
         -e REPS="$REPS" \
+        "${SMOKE_ENV[@]}" \
         -v "$RESULTS":/results \
         -v "$SSD_MOUNT":/mnt/ssd \
         "${extra_mounts[@]}" \
@@ -93,22 +115,28 @@ run_cell() {
 }
 
 # ---------------------------------------------------------------------------
-# Cell 1: SSD headline sweep (Fig. 4, Fig. 5, SST diagnostics).
+# Cell 1: SSD headline sweep (Fig. 4a/4b, SST diagnostics).
 # sstables.csv is captured automatically by run_paper_sweep.sh for every
 # LSM run; no separate sst-diagnostics cell is needed.
+# (Fig. 5 / q10 comes from a dedicated q10 cell — see the TODO below.)
 # ---------------------------------------------------------------------------
 run_cell "tpch-headline"
+
+# TODO(q10): once the leanstore entrypoint exposes a q10 cell (Q10/Q10i
+# families, structures incl. S5/S7), run it here so q10.pdf (Fig. 5) gets data:
+#   run_cell "tpch-q10"
+# Until then q10.pdf renders empty.
 
 # ---------------------------------------------------------------------------
 # Cell 2: HDD LSM subset (supplementary tpch_lsm_headline_hdd figure).
 # ---------------------------------------------------------------------------
 if [[ "$SKIP_HDD" -eq 0 ]]; then
-    if [[ -d "$HDD_MOUNT" ]]; then
+    if mountpoint -q "$HDD_MOUNT"; then
         run_cell "tpch-headline-hdd" \
             -v "$HDD_MOUNT":/mnt/hdd
     else
-        log "WARN: HDD mount '$HDD_MOUNT' not found -- skipping tpch-headline-hdd."
-        log "      Mount the HDD and re-run (stamp logic will skip completed cells)."
+        log "WARN: HDD mount '$HDD_MOUNT' is not a mounted filesystem -- skipping tpch-headline-hdd."
+        log "      Mount a rotational HDD there and re-run (stamp logic skips completed cells)."
         log "      Or pass --skip-hdd to suppress this warning and continue."
     fi
 else
@@ -116,15 +144,11 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Cell 3: refresh sweep (Fig. 6, Fig. 7) -- KNOWN GAP.
-# The dedicated refresh runner was not committed to the repo.
-# See REPRODUCE.md section "Known gaps" for details and the workaround.
+# Cell 3: refresh sweep (Fig. 7, refresh_lsm_vs_btree).
+# RF1/RF2 update throughput across the 10HH/10H/10L cells, both backends.
 # ---------------------------------------------------------------------------
 if [[ "$SKIP_REFRESH" -eq 0 ]]; then
-    log "WARN: refresh cell is not yet implemented (known gap)."
-    log "      Figs. 6+7 will show 'no data' panels."
-    log "      See REPRODUCE.md section 'Known gaps' for details."
-    log "      Pass --skip-refresh to suppress this warning."
+    run_cell "refresh"
 else
     log "cell 'refresh': skipped (--skip-refresh)"
 fi
@@ -146,6 +170,7 @@ fi
 log "running plots cell ..."
 docker run --rm \
     -e CELL=plots \
+    "${SMOKE_ENV[@]}" \
     -v "$RESULTS":/results \
     "$IMAGE"
 log "plots: done"

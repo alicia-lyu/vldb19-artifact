@@ -14,8 +14,7 @@ Expected layout after ``docker_run.sh`` completes:
       tpch_btree_headline.pdf     (Fig. 4a)
       tpch_lsm_headline.pdf       (Fig. 4b)
       q10.pdf                     (Fig. 5)
-      refresh_5L_pair_latency.pdf (Fig. 6)  [absent when refresh cell was skipped]
-      refresh_lsm_vs_btree.pdf    (Fig. 7)  [absent when refresh cell was skipped]
+      refresh_lsm_vs_btree.pdf    (Fig. 7)  [absent only when --skip-refresh]
       tpch_lsm_headline_hdd.pdf   (supplementary)
       paper_lsm_sst_path.pdf      (supplementary)
       experiment_numbers.json
@@ -40,19 +39,20 @@ def _check_docker() -> bool:
         return False
 
 
-def _check_perf_event_paranoid() -> bool:
+def _perf_event_paranoid_note() -> None:
+    """Informational only. The artifact does NOT require perf counters: binaries
+    run regardless of kernel.perf_event_paranoid; only perf-counter columns in
+    raw CSVs come out blank, and no figure or \\auto* macro depends on them."""
     p = Path("/proc/sys/kernel/perf_event_paranoid")
     if not p.exists():
-        return True   # not Linux — skip check
+        return
     try:
         val = int(p.read_text().strip())
-        return val <= 0
     except ValueError:
-        return True
-
-
-def _check_mount(path: Path) -> bool:
-    return path.is_dir() and any(path.iterdir()) if path.exists() else False
+        return
+    if val > 0:
+        print(f"[main] note: kernel.perf_event_paranoid={val} (> 0). "
+              "Perf-counter CSV columns will be blank; no figure depends on them.")
 
 
 def main() -> int:
@@ -65,29 +65,21 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=Path("paper-ready"),
                     help="destination for paper-ready outputs (default: ./paper-ready)")
     ap.add_argument("--skip-checks", action="store_true",
-                    help="skip host sanity checks (Docker, perf_event_paranoid, mounts)")
+                    help="skip the host Docker-running check")
     args = ap.parse_args()
 
     # ------------------------------------------------------------------ checks
     if not args.skip_checks:
-        ok = True
-
+        # Docker is the only hard requirement. perf_event_paranoid is NOT —
+        # see _perf_event_paranoid_note (informational only).
         if not _check_docker():
             print("[main] ERROR: Docker is not running or not installed.", file=sys.stderr)
             print("[main]        Install Docker Engine >= 24 and start the daemon.",
                   file=sys.stderr)
-            ok = False
-
-        if not _check_perf_event_paranoid():
-            print("[main] ERROR: kernel.perf_event_paranoid > 0.", file=sys.stderr)
-            print("[main]        Run: sudo sysctl -w kernel.perf_event_paranoid=0",
-                  file=sys.stderr)
-            ok = False
-
-        if not ok:
             print("[main] Host pre-check failed. Fix the above before running docker_run.sh.",
                   file=sys.stderr)
             return 2
+        _perf_event_paranoid_note()
 
     # ------------------------------------------------------------------ copy
     paper_ready_src = args.results / "paper-ready"
