@@ -267,6 +267,55 @@ At SF 4000 on the B-tree backend, the Q10 partial-aggregate variants
 land at `S5.q10 = 0.29 GiB` (incremental over the shared `MI_B`) and
 `S7.q10 = 1.24 GiB`.
 
+### What 1 SF means
+
+The TPC-H scale factor (`--tpch_scale_factor = N`) scales the row
+counts of the seven non-fixed base tables linearly in `N`. The loader
+multiplies the per-SF constants in
+`frontend/tpch/tpch_workload.hpp:38-45` (and, for the Invoice family,
+`tpchi_family/tpchi_workload.hpp:38`) by `N` to obtain the actual row
+counts inserted at load time:
+
+| Table | Row count at `--tpch_scale_factor = N` | Per-SF constant |
+|---|---|---|
+| `part` | `200 × N` | `PART_SCALE = 200` |
+| `supplier` | `10 × N` | `SUPPLIER_SCALE = 10` |
+| `partsupp` | `800 × N` (exactly 4 per `part`) | `PARTSUPP_SCALE = 800` |
+| `customer` | `150 × N` | `CUSTOMER_SCALE = 150` |
+| `orders` | `1500 × N` | `ORDERS_SCALE = 1500` |
+| `lineitem` | `≈ 6000 × N` (avg 4 per order, range 1–7) | `LINEITEM_SCALE = 6000` |
+| `invoice` (Invoice-extended only) | `3000 × N` | `INVOICE_SCALE = 3000` |
+| `nation` | 25 (fixed, not scaled) | `NATION_COUNT = 25` |
+| `region` | 5 (fixed, not scaled) | `REGION_COUNT = 5` |
+
+These multipliers are 1000× smaller than the TPC-H §4.2.3 standard
+per-SF counts (which list parts in thousands: 200 000 per SF).
+`--tpch_scale_factor` is therefore a row-count multiplier in this
+loader, not a "GiB of raw data" multiplier; the source comments
+("200K per SF") describe standard TPC-H, not this loader's behavior.
+
+Two loader details affect downstream sizes:
+
+- `o_orderkey` is sparse per TPC-H §4.2.3: only the first 8 of every 32
+  consecutive integers are populated initially
+  (`orderkey_from_index`, `tpch_workload.hpp:220-225`). At
+  `--tpch_scale_factor = N` the `1500 × N` populated orderkeys span a
+  key domain of `6000 × N`.
+- Every third customer (`custkey % 3 == 0`) receives no orders
+  (`generate_custkey_for_orders`, `tpch_workload.hpp:207-216`), so
+  roughly two-thirds of customers are reachable through the
+  order-sharing pipeline at any `N`.
+
+Reported settings:
+
+- **`--tpch_scale_factor = 4000`** on the B-tree backend (`sf_btree`):
+  800 K parts, 40 K suppliers, 3.2 M partsupp, 600 K customers, 6 M
+  orders, ≈ 24 M lineitems, 12 M invoices (Invoice-extended). Base
+  tables 8.57 GiB on disk (`base_size_btree`).
+- **`--tpch_scale_factor = 10000`** on the LSM backend (`sf_lsm`): same
+  per-SF multipliers at 2.5× the row counts. Base tables 7.88 GiB on
+  disk (`base_size_lsm`).
+
 ### Scale factors and DBToaster scoping
 
 The B-tree and LSM backends are reported at different TPC-H scale
