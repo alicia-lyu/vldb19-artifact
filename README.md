@@ -71,10 +71,13 @@ reported.
 
 Experiments run on **TPC-H**. The reported sweeps use two scale factors:
 **SF 4000** on the B-tree backend (LeanStore) and **SF 10000** on the
-LSM-tree backend (RocksDB). The per-backend on-disk density of the base
-tables differs by ≈2.7×, so the two scale factors land at comparable
-absolute footprints rather than comparable row counts; see §"Scale
-factors and DBToaster scoping" below.
+LSM-tree backend (RocksDB). `--tpch_scale_factor` here is a loader-side
+multiplier; the mapping to standard TPC-H SF, the per-table row counts
+at each value, and the per-backend on-disk density (≈2.7× between
+B-tree and LSM) are documented in §"What 1 SF means" below. The two
+scale factors land at comparable absolute footprints rather than
+comparable row counts; see §"Scale factors and DBToaster scoping" for
+the cross-comparison context.
 
 In addition to the standard schema, the paper defines an
 **Invoice-extended** schema. It adds one new table, `Invoice`, and one
@@ -168,7 +171,7 @@ RF2**, run at a steady rate after a warm-up phase with:
 A separate sweep at a 9 GiB DRAM budget is used only when comparing against
 DBToaster, which will not run below that point.
 
-### Background load
+### Background workload
 
 Every measured query runs against a live background workload of two TPC-H
 worker threads plus a uniform-random point-lookup stream over all base tables.
