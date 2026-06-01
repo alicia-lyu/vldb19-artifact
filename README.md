@@ -98,15 +98,15 @@ make paper-ready
 
 `make paper-ready` invokes `docker_run.sh` (sweep matrix → result tree
 under `results/`) and then `main.py` (copies tex-referenced PDFs and
-macros into `paper-ready/`). Expected end-to-end wall-clock is *TBD —
-flag for confirmation post-sweep*.
+macros into `paper-ready/`). Expected end-to-end wall-clock is **≈ 24 h**
+at paper SF (≈ 18 h without the optional HDD cell); image loading
+dominates (see the per-cell table below).
 
-Pinned image digest (verify with `docker inspect`) — **TODO: fill in once the
-camera-ready image is pushed to GHCR** (`docker inspect --format
+Pinned image digest (verify with `docker inspect --format
 '{{index .RepoDigests 0}}' ghcr.io/alicia-lyu/leanstore:vldb26`):
 
 ```
-ghcr.io/alicia-lyu/leanstore:vldb26@sha256:<digest-here>
+ghcr.io/alicia-lyu/leanstore:vldb26@sha256:27cc6104fa2dc556dbecdca3feef4bbc8b829ef1a017353df96584e01ad7558f
 ```
 
 ### Sweep matrix
@@ -589,7 +589,7 @@ listed here for inspection and rebuild.
 
 | Image                                  | Source                                                            | Commit                            |
 |----------------------------------------|-------------------------------------------------------------------|-----------------------------------|
-| `ghcr.io/alicia-lyu/leanstore:vldb26`  | <https://github.com/alicia-lyu/leanstore>                         | `<TODO: pin before camera-ready>` |
+| `ghcr.io/alicia-lyu/leanstore:vldb26`  | <https://github.com/alicia-lyu/leanstore>                         | `sha256:27cc6104…ad7558f`         |
 
 DBToaster is no longer a separate image — it lives in
 `leanstore/dbtoaster/` and is built as part of the single artifact
