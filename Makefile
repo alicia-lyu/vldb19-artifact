@@ -9,7 +9,7 @@ PYTHON  ?= python3
 # tree at $(RESULTS)/<tag>/{summary,manifest.yaml}). The stamp file
 # marks completion so re-runs of `make plots` skip the sweep.
 $(RESULTS)/.stamp:
-	./docker_run.sh $(RESULTS)
+	./docker_run.sh --results $(RESULTS)
 	@touch $@
 
 # Stage 2: pure plotting. Idempotent over an existing $(RESULTS) tree.

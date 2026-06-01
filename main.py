@@ -1,228 +1,119 @@
-"""Plot orchestrator for the VLDB 2026 merged-index artifact.
+"""Host-side artifact wrapper for the VLDB 2026 merged-index artifact.
 
-CSV-in, PDF-out. Does not build LeanStore, does not run the sweep, does
-not pull docker images — that is `docker_run.sh`'s job. This script
-consumes the paper-data-shaped result tree produced there and shells out
-to the figure builders under ``leanstore/paper-data/scripts/``.
+This script performs host sanity-checks and copies the paper-ready outputs
+produced by ``docker_run.sh`` (specifically the ``plots`` cell) into the
+local ``paper-ready/`` directory for easy inspection.
 
-Expected layout under ``--results``:
+The sweep, analysis, and plotting all happen inside the container.
+``docker_run.sh`` is the entry point for running the full artifact;
+this script is a thin convenience wrapper around its outputs.
 
-    results/
-      headline-ssd/       -> paper-data tag for SSD headline (btree + lsm, all 6 queries, S1..S4 @ 1.0 GiB)
-        manifest.yaml
-        summary/
-      headline-hdd/       -> LSM HDD subset for {q3,q3i,q5,q5i}
-      refresh-5L/         -> RF1+RF2 sweep at 1.0 GiB (beyond-memory)
-      refresh-5H/         -> RF1+RF2 sweep at 9 GiB (DBToaster point)
-      refresh-5HH/        -> RF1+RF2 sweep at 0.1 GiB (in-memory stress)
-      dbtoaster/
-        update_times.csv  -> emitted by the in-tree dbtoaster image
+Expected layout after ``docker_run.sh`` completes:
 
-The mapping from result subtree to tex-referenced figure filename is in
-``FIGURES`` below. To add a figure, append a row; to swap the underlying
-sweep, change the subtree name.
+    $RESULTS/paper-ready/
+      tpch_btree_headline.pdf     (Fig. 4a)
+      tpch_lsm_headline.pdf       (Fig. 4b)
+      q10.pdf                     (Fig. 5)
+      refresh_5L_pair_latency.pdf (Fig. 6)  [absent when refresh cell was skipped]
+      refresh_lsm_vs_btree.pdf    (Fig. 7)  [absent when refresh cell was skipped]
+      tpch_lsm_headline_hdd.pdf   (supplementary)
+      paper_lsm_sst_path.pdf      (supplementary)
+      experiment_numbers.json
+      experiment_numbers.tex
+      space_table.txt
 """
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional
 
 
-SCRIPTS_DIR_DEFAULT = Path(
-    os.environ.get(
-        "LEANSTORE_SCRIPTS",
-        Path.home() / "Local" / "leanstore" / "paper-data" / "scripts",
-    )
-)
+def _check_docker() -> bool:
+    try:
+        subprocess.run(["docker", "info"], check=True,
+                       capture_output=True, timeout=10)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return False
 
 
-@dataclass
-class Figure:
-    """One tex-referenced PDF and the recipe to produce it."""
-    out_name: str                     # filename as cited by experiments_revised.tex
-    builder: Callable[["Ctx", "Figure"], Optional[Path]]
-    subtree: str                      # results/<subtree>/ (paper-data layout)
-    extra: dict                       # builder-specific knobs
+def _check_perf_event_paranoid() -> bool:
+    p = Path("/proc/sys/kernel/perf_event_paranoid")
+    if not p.exists():
+        return True   # not Linux — skip check
+    try:
+        val = int(p.read_text().strip())
+        return val <= 0
+    except ValueError:
+        return True
 
 
-@dataclass
-class Ctx:
-    results: Path
-    out: Path
-    scripts: Path
+def _check_mount(path: Path) -> bool:
+    return path.is_dir() and any(path.iterdir()) if path.exists() else False
 
-    def script(self, name: str) -> Path:
-        return self.scripts / name
-
-
-# ---------------------------------------------------------------------------
-# Builders. Each shells out to a leanstore/paper-data/scripts/ entry point
-# with --root=results/<subtree>/.. and --tag=<subtree>. Returns the
-# absolute path to the produced PDF under figures/paper/ (or None on miss).
-# ---------------------------------------------------------------------------
-
-def _run(cmd: List[str]) -> None:
-    print("[main] $", " ".join(str(c) for c in cmd))
-    subprocess.run(cmd, check=True)
-
-
-def _ensure_summary(ctx: Ctx, subtree: str) -> Path:
-    """Run analyze_paper_sweep.py if summary/ is missing. Idempotent."""
-    tree = ctx.results / subtree
-    summary = tree / "summary"
-    if not summary.exists():
-        _run(["python3", str(ctx.script("analyze_paper_sweep.py")),
-              "--tag", subtree, "--root", str(ctx.results)])
-    return tree
-
-
-def build_paper_sweep(ctx: Ctx, fig: Figure) -> Optional[Path]:
-    tree = _ensure_summary(ctx, fig.subtree)
-    _run(["python3", str(ctx.script("plot_paper_sweep.py")),
-          "--tag", fig.subtree, "--root", str(ctx.results),
-          "--figures", fig.extra["figure_name"]])
-    # plot_paper_sweep auto-suffixes _ssd / _hdd via SweepData.paper_name().
-    paper_dir = tree / "figures" / "paper"
-    candidates = sorted(paper_dir.glob(fig.extra["figure_name"] + "*.pdf"))
-    return candidates[0] if candidates else None
-
-
-def build_refresh_sales(ctx: Ctx, fig: Figure) -> Optional[Path]:
-    tree = _ensure_summary(ctx, fig.subtree)
-    cmd = ["python3", str(ctx.script("plot_refresh_sales.py")),
-           "--tag", fig.subtree, "--root", str(ctx.results)]
-    dbt = ctx.results / "dbtoaster" / "update_times.csv"
-    if dbt.exists():
-        cmd += ["--dbtoaster", str(dbt)]
-    _run(cmd)
-    paper_dir = tree / "figures" / "paper"
-    candidates = sorted(paper_dir.glob("refresh_5L_pair_latency*.pdf"))
-    return candidates[0] if candidates else None
-
-
-def build_refresh_lsm_vs_btree(ctx: Ctx, fig: Figure) -> Optional[Path]:
-    _ensure_summary(ctx, "refresh-5L")
-    _ensure_summary(ctx, "refresh-5H")
-    _run(["python3", str(ctx.script("plot_refresh_lsm_vs_btree.py")),
-          "--tag-5L", "refresh-5L", "--tag-5H", "refresh-5H",
-          "--root", str(ctx.results),
-          "--out-tag", "refresh-5L",
-          "--basename", "refresh_lsm_vs_btree_5L_5H"])
-    paper_dir = ctx.results / "refresh-5L" / "figures" / "paper"
-    candidates = sorted(paper_dir.glob("refresh_lsm_vs_btree_5L_5H*.pdf"))
-    return candidates[0] if candidates else None
-
-
-def build_lsm_diagnostics(ctx: Ctx, fig: Figure) -> Optional[Path]:
-    tree = _ensure_summary(ctx, fig.subtree)
-    _run(["python3", str(ctx.script("plot_lsm_s3_vs_s2_diagnostics.py")),
-          "--tag", fig.subtree, "--root", str(ctx.results)])
-    # script writes to figures/diagnostics/ or figures/paper/.
-    for sub in ("paper", "diagnostics"):
-        paper_dir = tree / "figures" / sub
-        if paper_dir.exists():
-            for pat in ("diag_ssd_lsm_sst_path*.pdf",
-                        "lsm_s3_vs_s2_diagnostics*.pdf"):
-                hits = sorted(paper_dir.glob(pat))
-                if hits:
-                    return hits[0]
-    return None
-
-
-def build_q10(ctx: Ctx, fig: Figure) -> Optional[Path]:
-    tree = _ensure_summary(ctx, fig.subtree)
-    _run(["python3", str(ctx.script("plot_paper_sweep.py")),
-          "--tag", fig.subtree, "--root", str(ctx.results),
-          "--figures", "paper_q10"])
-    paper_dir = tree / "figures" / "paper"
-    candidates = sorted(paper_dir.glob("paper_q10*.pdf"))
-    return candidates[0] if candidates else None
-
-
-# ---------------------------------------------------------------------------
-# Figure catalog — one row per tex-referenced PDF.
-# ---------------------------------------------------------------------------
-
-FIGURES: List[Figure] = [
-    Figure("tpch_btree_headline.pdf", build_paper_sweep, "headline-ssd",
-           {"figure_name": "paper_tpch_btree"}),
-    Figure("tpch_lsm_headline.pdf",   build_paper_sweep, "headline-ssd",
-           {"figure_name": "paper_tpch_lsm"}),
-    Figure("tpch_lsm_headline_hdd.pdf", build_paper_sweep, "headline-hdd",
-           {"figure_name": "paper_tpch_lsm"}),
-    Figure("q10.pdf", build_q10, "headline-ssd", {}),
-    Figure("refresh_5L_pair_latency.pdf", build_refresh_sales, "refresh-5L", {}),
-    Figure("refresh_lsm_vs_btree_5L_5H.pdf", build_refresh_lsm_vs_btree,
-           "refresh-5L", {}),
-    Figure("diag_ssd_lsm_sst_path_ssd.pdf", build_lsm_diagnostics,
-           "headline-ssd", {}),
-]
-
-
-# Table 3 (`tab:exp-baselines` DB sizes) is hand-typed in the tex from
-# `space_table.py`'s stdout; that script hardcodes its SOURCES against
-# leanstore/paper-data/ tags and doesn't accept --root, so it's not
-# wired into the artifact flow. Run it manually against a leanstore
-# checkout when refreshing the table.
-
-
-# ---------------------------------------------------------------------------
-# Entry point.
-# ---------------------------------------------------------------------------
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ap.add_argument("--results", type=Path, default=Path("results"),
-                    help="results tree produced by docker_run.sh")
+                    help="results directory written by docker_run.sh (default: ./results)")
     ap.add_argument("--out", type=Path, default=Path("paper-ready"),
-                    help="destination for tex-referenced PDFs")
-    ap.add_argument("--scripts", type=Path, default=SCRIPTS_DIR_DEFAULT,
-                    help="leanstore/paper-data/scripts/ directory "
-                         "(or set $LEANSTORE_SCRIPTS)")
+                    help="destination for paper-ready outputs (default: ./paper-ready)")
+    ap.add_argument("--skip-checks", action="store_true",
+                    help="skip host sanity checks (Docker, perf_event_paranoid, mounts)")
     args = ap.parse_args()
 
-    if not args.results.exists():
-        print(f"[main] missing results tree: {args.results}", file=sys.stderr)
-        return 2
-    if not args.scripts.exists():
-        print(f"[main] missing scripts dir: {args.scripts} "
-              "(set --scripts or $LEANSTORE_SCRIPTS)", file=sys.stderr)
+    # ------------------------------------------------------------------ checks
+    if not args.skip_checks:
+        ok = True
+
+        if not _check_docker():
+            print("[main] ERROR: Docker is not running or not installed.", file=sys.stderr)
+            print("[main]        Install Docker Engine >= 24 and start the daemon.",
+                  file=sys.stderr)
+            ok = False
+
+        if not _check_perf_event_paranoid():
+            print("[main] ERROR: kernel.perf_event_paranoid > 0.", file=sys.stderr)
+            print("[main]        Run: sudo sysctl -w kernel.perf_event_paranoid=0",
+                  file=sys.stderr)
+            ok = False
+
+        if not ok:
+            print("[main] Host pre-check failed. Fix the above before running docker_run.sh.",
+                  file=sys.stderr)
+            return 2
+
+    # ------------------------------------------------------------------ copy
+    paper_ready_src = args.results / "paper-ready"
+    if not paper_ready_src.exists():
+        print(f"[main] paper-ready dir not found: {paper_ready_src}", file=sys.stderr)
+        print("[main] Run ./docker_run.sh first to produce the artifact outputs.",
+              file=sys.stderr)
         return 2
 
     args.out.mkdir(parents=True, exist_ok=True)
-    ctx = Ctx(results=args.results.resolve(),
-              out=args.out.resolve(),
-              scripts=args.scripts.resolve())
-
-    failures: List[str] = []
-    for fig in FIGURES:
-        try:
-            src = fig.builder(ctx, fig)
-        except subprocess.CalledProcessError as e:
-            print(f"[main] {fig.out_name}: builder failed ({e})", file=sys.stderr)
-            failures.append(fig.out_name)
-            continue
-        if src is None:
-            print(f"[main] {fig.out_name}: builder produced no PDF",
-                  file=sys.stderr)
-            failures.append(fig.out_name)
-            continue
-        dest = ctx.out / fig.out_name
+    copied = []
+    for src in sorted(paper_ready_src.iterdir()):
+        dest = args.out / src.name
         shutil.copyfile(src, dest)
-        print(f"[main] {fig.out_name} <- {src}")
+        copied.append(src.name)
+        print(f"[main] {src.name} -> {dest}")
 
-    if failures:
-        print(f"[main] {len(failures)} figure(s) missing: {failures}",
+    if not copied:
+        print(f"[main] WARNING: paper-ready dir is empty: {paper_ready_src}",
               file=sys.stderr)
         return 1
-    print(f"[main] wrote {len(FIGURES)} figures to {ctx.out}")
+
+    print(f"\n[main] Copied {len(copied)} file(s) to {args.out}/")
+    print("[main] To verify numbers against the paper source:")
+    print("  diff -u sections/experiment_numbers.json "
+          f"{args.out}/experiment_numbers.json")
     return 0
 
 
