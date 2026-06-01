@@ -6,15 +6,17 @@
 #
 # Prerequisites (see REPRODUCE.md §Host prerequisites for details):
 #   - Docker Engine >= 24
-#   - kernel.perf_event_paranoid = 0  (sudo sysctl -w kernel.perf_event_paranoid=0)
-#   - SSD mounted at $SSD_MOUNT (default: /mnt/nvme/leanstore)
-#   - HDD mounted at $HDD_MOUNT (default: /mnt/hdd/leanstore) -- only for tpch-headline-hdd
+#   - SSD (ROTA=0) mounted at $SSD_MOUNT (default: /mnt/ssd)
+#   - HDD mounted at $HDD_MOUNT (default: /mnt/hdd) -- only for tpch-headline-hdd
 #   - ~10 GiB free RAM; ~30 GiB free disk for result CSVs
 #
+# Note: kernel.perf_event_paranoid is NOT required. Binaries run regardless;
+#       only perf-counter columns in raw CSVs come out blank when the sysctl
+#       is non-zero, and no paper figure or \auto* macro depends on them.
+#
 # Usage:
-#   ./docker_run.sh [--results DIR] [--ssd /mnt/nvme/leanstore]
-#                  [--hdd /mnt/hdd/leanstore] [--reps N] [--skip-hdd]
-#                  [--skip-refresh] [--skip-dbtoaster]
+#   ./docker_run.sh [--results DIR] [--ssd /mnt/ssd] [--hdd /mnt/hdd]
+#                  [--reps N] [--skip-hdd] [--skip-refresh] [--skip-dbtoaster]
 #
 # Env overrides (alternative to flags):
 #   RESULTS       output directory (default: ./results)
@@ -27,8 +29,8 @@ set -euo pipefail
 IMAGE="ghcr.io/alicia-lyu/leanstore:vldb26"
 
 RESULTS="${RESULTS:-$(pwd)/results}"
-SSD_MOUNT="${SSD_MOUNT:-/mnt/nvme/leanstore}"
-HDD_MOUNT="${HDD_MOUNT:-/mnt/hdd/leanstore}"
+SSD_MOUNT="${SSD_MOUNT:-/mnt/ssd}"
+HDD_MOUNT="${HDD_MOUNT:-/mnt/hdd}"
 REPS="${REPS:-5}"
 SKIP_HDD=0
 SKIP_REFRESH=0
@@ -82,7 +84,7 @@ run_cell() {
         -e CELL="$cell" \
         -e REPS="$REPS" \
         -v "$RESULTS":/results \
-        -v "$SSD_MOUNT":/mnt/nvme/leanstore \
+        -v "$SSD_MOUNT":/mnt/ssd \
         "${extra_mounts[@]}" \
         "$IMAGE"
 
@@ -103,7 +105,7 @@ run_cell "tpch-headline"
 if [[ "$SKIP_HDD" -eq 0 ]]; then
     if [[ -d "$HDD_MOUNT" ]]; then
         run_cell "tpch-headline-hdd" \
-            -v "$HDD_MOUNT":/mnt/hdd/leanstore
+            -v "$HDD_MOUNT":/mnt/hdd
     else
         log "WARN: HDD mount '$HDD_MOUNT' not found -- skipping tpch-headline-hdd."
         log "      Mount the HDD and re-run (stamp logic will skip completed cells)."

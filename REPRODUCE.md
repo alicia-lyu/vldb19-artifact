@@ -15,34 +15,49 @@ Do not edit `README.md` — that file is maintained separately.
    sudo systemctl start docker
    ```
 
-2. **Performance counters enabled**
+2. **SSD mount** at `/mnt/ssd` (or set `SSD_MOUNT`).
+
+   **Critical: the device must be non-rotational** — verify before formatting:
 
    ```bash
-   sudo sysctl -w kernel.perf_event_paranoid=0
+   lsblk -d -o NAME,ROTA,SIZE,MODEL          # the SSD has ROTA=0
+   cat /sys/block/<dev>/queue/rotational     # must print 0
    ```
 
-   This must be set before each host reboot. Add to `/etc/sysctl.d/99-perf.conf`
-   to make it persistent.
+   On CloudLab `c220g2`, both the 480 GB SATA SSD and the two 1.2 TB SAS HDDs
+   show up as `sda`/`sdb`/`sdc` in non-deterministic order; the disk-type check
+   is not optional. (A prior paper sweep mounted the HDD as `/mnt/ssd` by
+   mistake and silently produced ~30× slower B-tree numbers — both LeanStore
+   and RocksDB use `O_DIRECT`, so the OS page cache hides nothing.)
 
-3. **SSD mount** at `/mnt/nvme/leanstore` (or set `SSD_MOUNT`):
+   Format and mount (label-based so the fstab entry survives reformats):
 
    ```bash
-   sudo mount /dev/nvme0n1p1 /mnt/nvme/leanstore
+   sudo mkfs.ext4 -F -L leanstore-ssd /dev/<rota0-dev>
+   sudo mkdir -p /mnt/ssd
+   echo 'LABEL=leanstore-ssd /mnt/ssd ext4 defaults,noatime 0 2' \
+     | sudo tee -a /etc/fstab
+   sudo mount /mnt/ssd
+   sudo chown $USER:$(id -gn) /mnt/ssd
    ```
 
-   The sweep writes LeanStore image files here (~5 GiB at the default SF).
+3. **HDD mount** at `/mnt/hdd` (or set `HDD_MOUNT`) — required only for the
+   supplementary `tpch-headline-hdd` cell (Fig. tpch_lsm_headline_hdd). Use
+   `--skip-hdd` to skip that cell. Use `LABEL=leanstore-hdd` mounted at
+   `/mnt/hdd` with the same fstab pattern.
 
-4. **HDD mount** at `/mnt/hdd/leanstore` (or set `HDD_MOUNT`) — required only
-   for the supplementary `tpch-headline-hdd` cell (Fig. tpch_lsm_headline_hdd).
-   Use `--skip-hdd` to skip that cell.
+4. **Disk space**: ~30 GiB free on the SSD for image files + result CSVs.
 
-5. **Disk space**: ~30 GiB free on the SSD for image files + result CSVs.
+5. **RAM**: ~10 GiB free (LeanStore runs with `dram_gib=1.0` by default).
 
-6. **RAM**: ~10 GiB free (LeanStore runs with `dram_gib=1.0` by default).
-
-7. **ISA floor**: AVX2. The image is compiled with `-march=haswell`; no
+6. **ISA floor**: AVX2. The image is compiled with `-march=haswell`; no
    AVX-512 is baked in. Any post-2013 Intel/AMD CPU works. The CloudLab
    `c220g2` node (Haswell-EP) is the target platform.
+
+The Docker entrypoint invokes binaries directly and does **not** depend on
+`kernel.perf_event_paranoid`. If the host has the default non-zero value, the
+binaries still run; only perf-counter columns in raw CSVs come out blank, and
+no paper figure or `\auto*` macro depends on them.
 
 ## Pulling the image
 
@@ -60,7 +75,7 @@ ghcr.io/alicia-lyu/leanstore:vldb26@sha256:<digest-here>
 
 ```bash
 cd /path/to/vldb19-artifact
-./docker_run.sh [--results ./results] [--ssd /mnt/nvme/leanstore]
+./docker_run.sh [--results ./results] [--ssd /mnt/ssd]
 ```
 
 `docker_run.sh` runs each cell in order, stamps completed cells, and skips
@@ -82,8 +97,8 @@ Env knobs accepted by all cells:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `REPS` | `5` | Repetitions per (binary, cell, structure, bg) |
-| `SSD_MOUNT` | `/mnt/nvme/leanstore` | SSD bind-mount point |
-| `HDD_MOUNT` | `/mnt/hdd/leanstore` | HDD bind-mount point |
+| `SSD_MOUNT` | `/mnt/ssd` | SSD bind-mount point |
+| `HDD_MOUNT` | `/mnt/hdd` | HDD bind-mount point |
 
 ### Skipping cells
 
@@ -135,6 +150,21 @@ make clean         # remove paper-ready/ and results/
 
 ## Known gaps
 
+### Sweep runner flags not yet wired (`--root`, `--backends`, `--disk`)
+
+The dispatcher (`experiments/docker_entrypoint.sh`) invokes
+`run_paper_sweep.sh` with `--root /results/<cell>`, and for the HDD
+cell also `--backends lsm --disk hdd`. None of those three flags exist
+today; `data_disk` is hardcoded to `/mnt/ssd` and output goes to the
+in-tree `paper-data/<tag>/` directory.
+
+**Impact**: `tpch-headline` and `tpch-headline-hdd` sweeps will run,
+but the resulting `paper-data/<cell>/` tree lives inside the container
+filesystem at `/leanstore/paper-data/` rather than under the mounted
+`/results/<cell>/`, so the `plots` cell will not find the data.
+
+**Linux follow-up**: see `LINUX_PENDING.md` in the leanstore repo.
+
 ### Refresh figures (Fig. 6 and Fig. 7) cannot be automatically reproduced
 
 The refresh sweep requires a dedicated runner that invokes the LeanStore
@@ -159,12 +189,6 @@ are included in the supplementary material at `paper-data/2026-05-30-refresh-10L
 tracked item to commit `experiments/run_refresh_sweep.sh`.
 
 ## Troubleshooting
-
-**`perf_event_paranoid` error in sweep log**:
-
-```bash
-sudo sysctl -w kernel.perf_event_paranoid=0
-```
 
 **`SIGILL` inside the container**:
 The image requires AVX2. Check `grep avx2 /proc/cpuinfo`. On CloudLab
