@@ -9,3 +9,4 @@
 | `requirements.txt` | `TRASH/requirements.txt` | Python deps for the old `main.py`. |
 | `paper-ready/btree_cpu_utilization.png` | `TRASH/paper-ready/btree_cpu_utilization.png` | CPU chart from the old workload; not referenced by the rewritten paper. |
 | `paper-ready/lsm_cpu_utilization.png` | `TRASH/paper-ready/lsm_cpu_utilization.png` | Same as above. |
+| `REPRODUCE.md` | `TRASH/REPRODUCE.md` | Reproduction-flow content folded into `README.md`. Owner reassigned (2026-06-01) and consolidated into a single user-facing doc. |

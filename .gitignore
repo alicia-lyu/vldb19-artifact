@@ -6,3 +6,4 @@
 !paper-ready/lsm_cpu_utilization.png
 *stderr.txt
 /TRASH
+__pycache__/

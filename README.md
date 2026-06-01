@@ -5,65 +5,212 @@ This artifact reproduces the experiments in the VLDB 2026 paper
 Wenhui Lyu and Goetz Graefe. The paper evaluates **multi-table merged
 indexes** on TPC-H order-sharing pipelines against hash-based and
 merge-based query-time computation and against parameter-reusable
-materialized views. This document is the **specification** the
-reproducible package targets: schema, queries, parameters, storage
-structures under test, and the labels needed to decode the numeric
-macros reported in the paper.
+materialized views.
 
-## How to reproduce the experiments
+The reproducible package below targets a single pre-built Docker image
+that bundles the LeanStore sweep binaries, the DBToaster baseline, and
+the plotting scripts. The remainder of this document covers (1) how to
+run it end-to-end and (2) the workload specification it implements.
 
-Execution is wrapped in two pre-built Docker images (the main LeanStore
-sweep image and a DBToaster image). The host runs Docker plus a thin
-Python harness; no bare-metal LeanStore build is required.
+## How to reproduce
+
+All sweep logic, binaries, and plotting scripts are bundled in
+`ghcr.io/alicia-lyu/leanstore:vldb26`. The host only needs Docker, a
+mounted SSD (and HDD for the supplementary figure), and `make`.
+
+The Docker entrypoint invokes binaries directly and does **not**
+depend on `kernel.perf_event_paranoid`. If the host has the default
+non-zero value, the binaries still run; only perf-counter columns in
+raw CSVs come out blank, and no paper figure or `\auto*` macro
+depends on them.
 
 ### Host prerequisites
 
-These do not fit inside a container and must be set on the host:
+1. **Docker Engine ≥ 24** and **Python ≥ 3.10**.
 
-1. **Kernel** — `sudo sysctl kernel.perf_event_paranoid=0` (LeanStore
-   uses `perf_event_open` for its counters).
-2. **SSD / HDD** — a dedicated NVMe partition mounted at the path the
-   image expects, plus the optional SAS HDD for the `subsec:btree_vs_lsm`
-   results. The full partitioning + mount recipe is in the source
-   repo's [`LINUX_SETUP.md`](https://github.com/alicia-lyu/leanstore/blob/main/LINUX_SETUP.md);
-   follow it verbatim per machine.
-3. **Docker** ≥ 24, **Python** ≥ 3.10.
-4. `pip install -r requirements.txt`.
+   ```bash
+   docker --version
+   sudo systemctl start docker
+   pip install -r requirements.txt
+   ```
+
+2. **SSD mount** at `/mnt/ssd` (or set `SSD_MOUNT`).
+
+   **Critical: the device must be non-rotational.** On CloudLab `c220g2`,
+   both the 480 GB SATA SSD and the two 1.2 TB SAS HDDs show up as
+   `sda` / `sdb` / `sdc` in non-deterministic order; the disk-type check
+   is not optional. A prior paper sweep mounted the HDD as `/mnt/ssd`
+   by mistake and silently produced ~30× slower B-tree numbers — both
+   LeanStore and RocksDB use `O_DIRECT`, so the OS page cache hides
+   nothing.
+
+   Verify, format, mount:
+
+   ```bash
+   lsblk -d -o NAME,ROTA,SIZE,MODEL          # the SSD has ROTA=0
+   cat /sys/block/<dev>/queue/rotational     # must print 0
+
+   sudo mkfs.ext4 -F -L leanstore-ssd /dev/<rota0-dev>
+   sudo mkdir -p /mnt/ssd
+   echo 'LABEL=leanstore-ssd /mnt/ssd ext4 defaults,noatime 0 2' \
+     | sudo tee -a /etc/fstab
+   sudo mount /mnt/ssd
+   sudo chown $USER:$(id -gn) /mnt/ssd
+   ```
+
+   Full partitioning / mount recipe per machine is in the source repo's
+   [`LINUX_SETUP.md`](https://github.com/alicia-lyu/leanstore/blob/main/LINUX_SETUP.md).
+
+3. **HDD mount** at `/mnt/hdd` (or set `HDD_MOUNT`) — required only for
+   the supplementary `tpch-headline-hdd` cell (Fig. `tpch_lsm_headline_hdd`).
+   Use `LABEL=leanstore-hdd` with the same fstab pattern. Pass
+   `--skip-hdd` to skip the cell entirely.
+
+4. **Disk space**: ~30 GiB free on the SSD for image files + result CSVs.
+
+5. **RAM**: ~10 GiB free (LeanStore runs with `--dram_gib=1.0` by default).
+
+6. **ISA floor**: AVX2. The image is compiled with `-march=haswell`; no
+   AVX-512 is baked in. Any post-2013 Intel/AMD CPU works.
 
 ### Run
 
 ```bash
 docker pull ghcr.io/alicia-lyu/leanstore:vldb26
-docker pull ghcr.io/alicia-lyu/dbtoaster:vldb26
 make paper-ready
 ```
 
-`make paper-ready` invokes `docker_run.sh` (which runs the full sweep
-matrix and writes a paper-data-shaped tree under `results/`) and then
-`main.py` (which calls the figure builders from
-`leanstore/paper-data/scripts/` and copies the tex-referenced PDFs into
-`paper-ready/`). Expected end-to-end wall-clock is *TBD — flag for
-confirmation post-sweep*.
+`make paper-ready` invokes `docker_run.sh` (sweep matrix → result tree
+under `results/`) and then `main.py` (copies tex-referenced PDFs and
+macros into `paper-ready/`). Expected end-to-end wall-clock is *TBD —
+flag for confirmation post-sweep*.
+
+Pinned image digest (verify with `docker inspect`):
+
+```
+ghcr.io/alicia-lyu/leanstore:vldb26@sha256:<digest-here>
+```
 
 ### Sweep matrix
 
-`docker_run.sh` populates `results/` with six subtrees, one per sweep
-cell:
+`docker_run.sh` invokes the same image once per cell, with `CELL=<name>`
+as the only env that changes per call. Each cell writes a paper-data-
+shaped subtree (`manifest.yaml` + `raw/` + `summary/`) under
+`results/<cell>/`.
 
-| Subtree            | Purpose                                              | Backends   | DRAM    | Queries                       | Disk |
-|--------------------|------------------------------------------------------|------------|---------|-------------------------------|------|
-| `headline-ssd/`    | SSD headline (Fig. tpch\_{btree,lsm}\_headline, q10) | btree, lsm | 1.0 GiB | Q3, Q3i, Q5, Q5i, Q10, Q10i   | SSD  |
-| `headline-hdd/`    | LSM HDD subset (Fig. tpch\_lsm\_headline\_hdd)       | lsm        | 1.0 GiB | Q3, Q3i, Q5, Q5i              | HDD  |
-| `refresh-5L/`      | RF1+RF2 beyond-memory                                | btree, lsm | 1.0 GiB | all                           | SSD  |
-| `refresh-5H/`      | RF1+RF2 with DBToaster comparison                    | btree, lsm | 9 GiB   | all                           | SSD  |
-| `refresh-5HH/`     | RF1+RF2 in-memory stress                             | btree, lsm | 0.1 GiB | all                           | SSD  |
-| `dbtoaster/`       | DBToaster update CSV (5H column)                     | dbtoaster  | 9 GiB   | all                           | SSD  |
+| Cell                | Figures                                         | Walltime (c220g2, 5 reps) | Notes                                   |
+|---------------------|-------------------------------------------------|---------------------------|-----------------------------------------|
+| `tpch-headline`     | Fig. 4a, 4b, 5, `diag_ssd_lsm_sst_path` (suppl.)| ~4 h                      | SSD; btree + LSM; sstables.csv captured |
+| `tpch-headline-hdd` | `tpch_lsm_headline_hdd` (suppl.)                | ~2 h                      | HDD; LSM only                           |
+| `refresh`           | Fig. 6, Fig. 7                                  | —                         | **Known gap** — see below               |
+| `dbtoaster`         | refresh overlay column                          | ~30 min                   | In-memory DBToaster baseline            |
+| `plots`             | all PDFs + macros                               | ~5 min                    | Pure post-processing                    |
 
-Each non-dbtoaster subtree mirrors the `paper-data/<tag>/` layout
-(`manifest.yaml` + `summary/`) so the existing figure builders run
-unchanged. Three reps per cell; the median per-query latency is
-reported.
+Env knobs accepted by all cells:
 
+| Variable     | Default     | Description                                        |
+|--------------|-------------|----------------------------------------------------|
+| `REPS`       | `5`         | Repetitions per (binary, cell, structure, bg)      |
+| `SSD_MOUNT`  | `/mnt/ssd`  | SSD bind-mount point                               |
+| `HDD_MOUNT`  | `/mnt/hdd`  | HDD bind-mount point                               |
+
+### Skipping cells
+
+```bash
+./docker_run.sh --skip-hdd          # skip the supplementary HDD figure
+./docker_run.sh --skip-refresh     # skip refresh (already a no-op gap)
+./docker_run.sh --skip-dbtoaster   # skip the DBToaster baseline
+```
+
+### Expected outputs
+
+After `make paper-ready` finishes, `paper-ready/` contains:
+
+- `tpch_btree_headline.pdf` — Fig. 4a (B-tree headline throughput)
+- `tpch_lsm_headline.pdf` — Fig. 4b (LSM headline throughput)
+- `q10.pdf` — Fig. 5 (Q10 / Q10i breakdown)
+- `refresh_5L_pair_latency.pdf` — Fig. 6 (RF pair latency; absent if refresh skipped)
+- `refresh_lsm_vs_btree.pdf` — Fig. 7 (LSM vs. B-tree refresh; absent if refresh skipped)
+- `tpch_lsm_headline_hdd.pdf` — supplementary HDD figure (absent if `--skip-hdd`)
+- `paper_lsm_sst_path.pdf` — supplementary SST diagnostics
+- `experiment_numbers.json` — all `\auto*` macro values
+- `experiment_numbers.tex` — LaTeX macro definitions
+- `space_table.txt` — Table 3 (storage sizes)
+
+### Verifying numbers
+
+```bash
+diff -u sections/experiment_numbers.json \
+        paper-ready/experiment_numbers.json
+```
+
+Only the `_meta.*_tag` provenance fields and any newly-dated values
+should differ. Numeric `value` fields must match within a small
+tolerance (~5%, due to non-deterministic scheduling on shared
+hardware).
+
+### Makefile targets
+
+```bash
+make paper-ready   # docker_run.sh + main.py (full end-to-end)
+make plots         # main.py only (skip sweep if stamp exists)
+make clean         # remove paper-ready/ and results/
+```
+
+### Known gaps
+
+#### Sweep runner flags not yet wired (`--root`, `--backends`, `--disk`)
+
+The dispatcher (`experiments/docker_entrypoint.sh` in the leanstore
+repo) invokes `run_paper_sweep.sh` with `--root /results/<cell>`, and
+for the HDD cell also `--backends lsm --disk hdd`. None of those three
+flags exist today; `data_disk` is hardcoded to `/mnt/ssd` and output
+goes to the in-tree `paper-data/<tag>/` directory.
+
+**Impact**: `tpch-headline` and `tpch-headline-hdd` sweeps will run,
+but the resulting `paper-data/<cell>/` tree lives inside the container
+filesystem at `/leanstore/paper-data/` rather than under the mounted
+`/results/<cell>/`, so the `plots` cell will not find the data.
+
+**Linux follow-up**: see `LINUX_PENDING.md` in the leanstore repo.
+
+#### Refresh figures (Fig. 6 and Fig. 7) cannot be automatically reproduced
+
+The refresh sweep requires a dedicated runner that invokes the
+LeanStore binary in RF1+RF2 update mode, recovers from per-structure
+image copies, drops OS page caches between runs, and emits the
+`raw/<cell>/<backend>.s<N>.csv` layout consumed by
+`paper-data/scripts/summarize_refresh_10L.py`. This runner
+(`build/scratch/run_refresh_10L_*.sh` on the author's Linux machine)
+was not committed to the source repo. The `refresh` cell in
+`docker_entrypoint.sh` exits with an error when invoked.
+
+**Impact**: `refresh_5L_pair_latency.pdf` (Fig. 6) and
+`refresh_lsm_vs_btree.pdf` (Fig. 7) will be absent from `paper-ready/`.
+All other figures and all `experiment_numbers.json` macro values are
+unaffected.
+
+**Workaround for committee members**: The authoring-run CSVs and
+figures are included in the supplementary material at
+`paper-data/2026-05-30-refresh-10L/` in the leanstore source repo.
+
+**Linux follow-up**: See `LINUX_PENDING.md` in the leanstore repo for
+the tracked item to commit `experiments/run_refresh_sweep.sh`.
+
+### Troubleshooting
+
+- **`SIGILL` inside the container** — the image requires AVX2. Check
+  `grep avx2 /proc/cpuinfo`. On CloudLab `c220g2` this is always
+  present; on older hardware it may not be.
+- **Sweep stalls at load phase** — the load phase writes LeanStore
+  image files to the SSD mount. Confirm the SSD is mounted and has
+  at least 10 GiB free.
+- **Re-running a single cell after failure**:
+
+  ```bash
+  rm results/.stamp_tpch_headline
+  ./docker_run.sh
+  ```
 
 ## Workload Specification
 
@@ -175,16 +322,15 @@ DBToaster, which will not run below that point.
 
 Every measured query runs against a live background workload of two TPC-H
 worker threads plus a uniform-random point-lookup stream over all base tables.
-Each query is repeated three times and the median per-query latency is
+Each query is repeated **five** times and the median per-query latency is
 reported.
 
 ### Per-query parameters
 
 Substitution parameters and the validation seed used for parity checking
-are recorded per query. The sweep rotates `--param_seed ∈ {0, 1, 2}`
-across the three repetitions, picking a different parameter combination
-per rep but holding the combination identical across structures within
-a rep.
+are recorded per query. The sweep rotates `--param_seed ∈ {0..4}` across
+the five repetitions, picking a different parameter combination per rep
+but holding the combination identical across structures within a rep.
 
 | Query | Parameter ranges | Validation seed |
 |---|---|---|
@@ -397,13 +543,13 @@ are recorded in each `results/<subtree>/manifest.yaml`.
 
 | Flag                       | Value                              | Description                                                              |
 |----------------------------|------------------------------------|--------------------------------------------------------------------------|
-| `--tpch_scale_factor`      | 1550                               | TPC-H scale (≈5 GiB base tables). Per `manifest.yaml: sf`.               |
-| `--storage_structure`      | 1 / 2 / 3 / 4                      | 1=`Base-Merge`, 2=`Mat-View`, 3=`Merged-Idx`, 4=`Base-Hash`. Swept.      |
+| `--tpch_scale_factor`      | 4000 (btree) / 10000 (lsm)         | TPC-H scale (≈8.6 GiB / 7.9 GiB base tables). See `sf_btree` / `sf_lsm`. |
+| `--storage_structure`      | 1 / 2 / 3 / 4 (+ 5, 7 for Q10)     | 1=`Base-Merge`, 2=`Mat-View`, 3=`Merged-Idx`, 4=`Base-Hash`. Swept.      |
 | `--tx_seconds`             | 15                                 | Seconds per measured transaction type.                                   |
 | `--warmup_seconds`         | 5                                  | Warm-up before measurement.                                              |
-| `--param_seed`             | 0..2 (per rep)                     | Substitution-parameter rotation; identical across structures within a rep. |
+| `--param_seed`             | 0..4 (per rep)                     | Substitution-parameter rotation; identical across structures within a rep. |
 | `--dram_gib`               | 0.1 / 1.0 / 9.0                    | Engine DRAM budget. 1.0 is the headline; 9.0 is the DBToaster point; 0.1 is the in-memory stress cell. |
-| `--ssd_path`               | `/mnt/nvme/leanstore`              | Mounted per `LINUX_SETUP.md`.                                            |
+| `--ssd_path`               | `/mnt/ssd`                         | Mounted per `LINUX_SETUP.md` (host-side; bind-mounted into the image).   |
 | `--isolation_level`        | `si`                               | Snapshot isolation.                                                      |
 | `--worker_threads`         | 4                                  | Foreground workers.                                                      |
 | `--pp_threads`             | 1                                  | Page-provider threads.                                                   |
@@ -440,16 +586,16 @@ Set in `frontend/shared/RocksDB.cpp::set_options()`.
 
 ## Source repositories
 
-The Docker images are built upstream from the LeanStore source repo;
-the reproducer only needs to `docker pull` them. The source trees are
+The Docker image is built upstream from the LeanStore source repo;
+the reproducer only needs to `docker pull` it. The source tree is
 listed here for inspection and rebuild.
 
-| Image                                       | Source                                                                                  | Commit                           |
-|---------------------------------------------|-----------------------------------------------------------------------------------------|----------------------------------|
-| `ghcr.io/alicia-lyu/leanstore:vldb26`       | <https://github.com/alicia-lyu/leanstore>                                               | `<TODO: pin before camera-ready>` |
-| `ghcr.io/alicia-lyu/dbtoaster:vldb26`       | same repo, subdir `dbtoaster/` (in-tree `CMakeLists.txt` + `Dockerfile` + `entrypoint.sh` + `data_files/`) | `<TODO: pin before camera-ready>` |
+| Image                                  | Source                                                            | Commit                            |
+|----------------------------------------|-------------------------------------------------------------------|-----------------------------------|
+| `ghcr.io/alicia-lyu/leanstore:vldb26`  | <https://github.com/alicia-lyu/leanstore>                         | `<TODO: pin before camera-ready>` |
 
-DBToaster is no longer a separate repository — it lives in
-`leanstore/dbtoaster/` and is built as a standalone CMake project. It
-only contributes the 9 GiB column of `refresh_5L_pair_latency`
-(`results/dbtoaster/update_times.csv`).
+DBToaster is no longer a separate image — it lives in
+`leanstore/dbtoaster/` and is built as part of the single artifact
+image (CMake project bundled by the root `Dockerfile`). It contributes
+only the 9 GiB column of `refresh_5L_pair_latency`
+(`results/dbtoaster/update_times.csv`); rerun via `CELL=dbtoaster`.
