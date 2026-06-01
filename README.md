@@ -125,11 +125,12 @@ shaped subtree (`manifest.yaml` + `raw/` + `summary/`) under
 | `plots`             | all PDFs + macros                               | ~5 min                    | Pure post-processing                    |
 
 End-to-end is **≈ 24 h at paper SF** (SF 4000 btree / 10000 lsm, 5 reps) on a
-c220g2 — the per-structure image loads dominate. The `tpch-headline-hdd` cell
-(~6 h) is **optional**: it needs a rotational HDD and is auto-skipped without
-one, so a reviewer with only an SSD reproduces the main results in **≈ 18 h**.
-Use `--smoke` (SF=15, 1 rep) for a few-minute validation of the whole pipeline
-first.
+c220g2. **Image loading dominates**: building the 16 SSD headline images alone
+measured ~13 h (per-image 9–112 min; LSM at SF 10000 is the slowest), and the
+timed query runs are minor on top. The `tpch-headline-hdd` cell (~6 h) is
+**optional**: it needs a rotational HDD and is auto-skipped without one, so a
+reviewer with only an SSD reproduces the main results in **≈ 18 h**. Use
+`--smoke` (SF=15, 1 rep) for a few-minute validation of the whole pipeline first.
 
 Fig. 5 (`paper_q10.pdf`) is produced by the `tpch-headline` cell — the
 q3/q5/q10 vanilla and q3i/q5i/q10i invoice families sweep together.
