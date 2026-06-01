@@ -288,11 +288,26 @@ counts inserted at load time:
 | `nation` | 25 (fixed, not scaled) | `NATION_COUNT = 25` |
 | `region` | 5 (fixed, not scaled) | `REGION_COUNT = 5` |
 
-These multipliers are 1000× smaller than the TPC-H §4.2.3 standard
-per-SF counts (which list parts in thousands: 200 000 per SF).
-`--tpch_scale_factor` is therefore a row-count multiplier in this
-loader, not a "GiB of raw data" multiplier; the source comments
-("200K per SF") describe standard TPC-H, not this loader's behavior.
+The loader's `--tpch_scale_factor` is **not** the standard TPC-H SF.
+The per-SF multipliers above are 1000× smaller than the TPC-H §4.2.3
+constants (e.g., 200 parts per SF here vs. 200 000 per SF in the
+specification). The mapping is `standard_SF = --tpch_scale_factor /
+1000`, so the loader produces row counts equal to standard TPC-H at
+that smaller SF:
+
+- `--tpch_scale_factor = 1000` ⇒ standard TPC-H SF 1 cardinalities
+  (200 K part, 1.5 M orders, ≈ 6 M lineitem, etc.).
+- `--tpch_scale_factor = 4000` (B-tree sweep) ⇒ standard TPC-H SF 4
+  cardinalities; raw-data footprint comparable to a 4 GB TPC-H SF 4
+  dataset.
+- `--tpch_scale_factor = 10000` (LSM sweep) ⇒ standard TPC-H SF 10
+  cardinalities; raw-data footprint comparable to a 10 GB TPC-H SF 10
+  dataset.
+
+The source comments ("200K per SF") describe the standard, not the
+loader; row counts are linear in `--tpch_scale_factor` and reach
+standard TPC-H spec cardinality when `--tpch_scale_factor` is a
+multiple of 1000.
 
 Two loader details affect downstream sizes:
 
