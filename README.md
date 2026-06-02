@@ -106,7 +106,7 @@ Pinned image digest (verify with `docker inspect --format
 '{{index .RepoDigests 0}}' ghcr.io/alicia-lyu/leanstore:vldb26`):
 
 ```
-ghcr.io/alicia-lyu/leanstore:vldb26@sha256:50ad7fd26f7a19546b9a206e58e776b6c92cb962153105bef31ee2fac223ec90
+ghcr.io/alicia-lyu/leanstore:vldb26@sha256:24dd53af3f4063ad029c9ccc4e07bca58bcc63315019787fadb6c9aaa354c3f3
 ```
 
 ### Sweep matrix
@@ -617,7 +617,7 @@ listed here for inspection and rebuild.
 
 | Image                                  | Source                                                            | Commit                            |
 |----------------------------------------|-------------------------------------------------------------------|-----------------------------------|
-| `ghcr.io/alicia-lyu/leanstore:vldb26`  | <https://github.com/alicia-lyu/leanstore>                         | `sha256:50ad7fd2…23ec90`         |
+| `ghcr.io/alicia-lyu/leanstore:vldb26`  | <https://github.com/alicia-lyu/leanstore>                         | `sha256:24dd53af…54c3f3`         |
 
 DBToaster is no longer a separate image — it lives in
 `leanstore/dbtoaster/` and is built as part of the single artifact
