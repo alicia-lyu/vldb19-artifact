@@ -3,9 +3,12 @@
 # tracked explicitly via `git add -f`).
 *.csv
 *.png
+*.pdf
 *.tex
 *stderr.txt
 .DS_Store
 /results
+/results-*
+/results.*
 /TRASH
 __pycache__/
