@@ -1,28 +1,33 @@
 #!/usr/bin/env bash
 # docker_run.sh — run the VLDB 2026 merged-index artifact end-to-end.
 #
-# Pulls the pre-built image, runs each sweep cell in sequence, and
-# produces paper-ready PDFs and macros under $RESULTS/paper-ready/.
+# Thin host-side driver: pull the pre-built image and run each sweep cell in
+# sequence. All experiment logic lives in the image's entrypoint
+# (experiments/docker_entrypoint.sh); this script just sequences the cells and
+# wires up the mounts. Outputs land in $RESULTS/paper-ready/.
 #
-# Prerequisites (see REPRODUCE.md §Host prerequisites for details):
+# Prerequisites (see README.md §Host prerequisites for details):
 #   - Docker Engine >= 24
 #   - SSD (ROTA=0) mounted at $SSD_MOUNT (default: /mnt/ssd)
-#   - HDD mounted at $HDD_MOUNT (default: /mnt/hdd) -- only for tpch-headline-hdd
-#   - ~10 GiB free RAM; ~30 GiB free disk for result CSVs
+#   - HDD (rotational) at $HDD_MOUNT (default: /mnt/hdd) -- only for the
+#     supplementary tpch-headline-hdd cell; skipped automatically if absent.
+#   - ~10 GiB free RAM; ~230 GiB free on the SSD for the full sweep
+#     (per-structure images: 2 families x 2 backends x S1-S4). Use --smoke for
+#     a few-GiB run.
 #
-# Note: kernel.perf_event_paranoid is NOT required. Binaries run regardless;
-#       only perf-counter columns in raw CSVs come out blank when the sysctl
-#       is non-zero, and no paper figure or \auto* macro depends on them.
+# kernel.perf_event_paranoid is NOT required; only perf-counter CSV columns come
+# out blank when it is non-zero, and no figure or \auto* macro depends on them.
 #
 # Usage:
 #   ./docker_run.sh [--results DIR] [--ssd /mnt/ssd] [--hdd /mnt/hdd]
-#                  [--reps N] [--skip-hdd] [--skip-refresh] [--skip-dbtoaster]
+#                   [--reps N] [--smoke]
 #
-# Env overrides (alternative to flags):
-#   RESULTS       output directory (default: ./results)
-#   SSD_MOUNT     SSD mount for LeanStore image files
-#   HDD_MOUNT     HDD mount for the supplementary HDD cell
-#   REPS          repetitions per run (default: 5)
+#   --smoke   Fast end-to-end validation (SMOKE=1): each cell runs its smallest
+#             configuration (SF=15, all structures, 1 rep) so pull -> all cells
+#             -> plots completes in minutes. Use it to sanity-check the host +
+#             image before the multi-hour full sweep.
+#
+# Env overrides (alternative to flags): RESULTS, SSD_MOUNT, HDD_MOUNT, REPS.
 
 set -euo pipefail
 
@@ -32,129 +37,68 @@ RESULTS="${RESULTS:-$(pwd)/results}"
 SSD_MOUNT="${SSD_MOUNT:-/mnt/ssd}"
 HDD_MOUNT="${HDD_MOUNT:-/mnt/hdd}"
 REPS="${REPS:-5}"
-SKIP_HDD=0
-SKIP_REFRESH=0
-SKIP_DBTOASTER=0
+SMOKE=0
 
-usage() {
-    grep '^#' "$0" | grep -v '^#!/' | sed 's/^# *//'
-    exit 0
-}
+usage() { grep '^#' "$0" | grep -v '^#!/' | sed 's/^# *//'; exit 0; }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --results)        RESULTS="$2";     shift 2 ;;
-        --ssd)            SSD_MOUNT="$2";   shift 2 ;;
-        --hdd)            HDD_MOUNT="$2";   shift 2 ;;
-        --reps)           REPS="$2";        shift 2 ;;
-        --skip-hdd)       SKIP_HDD=1;       shift   ;;
-        --skip-refresh)   SKIP_REFRESH=1;   shift   ;;
-        --skip-dbtoaster) SKIP_DBTOASTER=1; shift   ;;
-        -h|--help)        usage             ;;
+        --results) RESULTS="$2"; shift 2 ;;
+        --ssd)     SSD_MOUNT="$2"; shift 2 ;;
+        --hdd)     HDD_MOUNT="$2"; shift 2 ;;
+        --reps)    REPS="$2"; shift 2 ;;
+        --smoke)   SMOKE=1; shift ;;
+        -h|--help) usage ;;
         *) echo "Unknown flag: $1" >&2; exit 1 ;;
     esac
 done
 
 mkdir -p "$RESULTS"
-
 log() { echo "[docker_run] $(date '+%H:%M:%S') $*"; }
 
-# ---------------------------------------------------------------------------
-# Pull the image once.
-# ---------------------------------------------------------------------------
+SMOKE_ENV=()
+[[ "$SMOKE" -eq 1 ]] && SMOKE_ENV=(-e SMOKE=1)
+
+# The SSD mount must be a real bind-mount (the in-container entrypoint fails fast
+# otherwise; this gives a clearer message up front).
+if ! mountpoint -q "$SSD_MOUNT"; then
+    echo "[docker_run] ERROR: SSD mount '$SSD_MOUNT' is not a mounted filesystem." >&2
+    echo "[docker_run]        Mount an SSD there (README §Host prerequisites) or pass --ssd." >&2
+    exit 1
+fi
+
 log "pulling $IMAGE ..."
 docker pull "$IMAGE"
 
-# ---------------------------------------------------------------------------
-# Helper: run one cell. Stamps on success so re-runs skip completed cells.
-# ---------------------------------------------------------------------------
+# Run one cell. The container entrypoint (CELL=<name>) owns all experiment logic.
 run_cell() {
     local cell="$1"; shift
-    local extra_mounts=("$@")
-
-    local stamp_name="${cell//-/_}"
-    local stamp="$RESULTS/.stamp_${stamp_name}"
-    if [[ -f "$stamp" ]]; then
-        log "cell '$cell': already complete (stamp found) -- skipping"
-        return 0
-    fi
-
-    log "starting cell '$cell' ..."
+    log "cell '$cell' ..."
     docker run --rm \
-        -e CELL="$cell" \
-        -e REPS="$REPS" \
-        -v "$RESULTS":/results \
-        -v "$SSD_MOUNT":/mnt/ssd \
-        "${extra_mounts[@]}" \
+        -e CELL="$cell" -e REPS="$REPS" "${SMOKE_ENV[@]}" \
+        -v "$RESULTS":/results -v "$SSD_MOUNT":/mnt/ssd \
+        "$@" \
         "$IMAGE"
-
-    touch "$stamp"
-    log "cell '$cell': done"
 }
 
-# ---------------------------------------------------------------------------
-# Cell 1: SSD headline sweep (Fig. 4, Fig. 5, SST diagnostics).
-# sstables.csv is captured automatically by run_paper_sweep.sh for every
-# LSM run; no separate sst-diagnostics cell is needed.
-# ---------------------------------------------------------------------------
-run_cell "tpch-headline"
+# Cells, in order. tpch-headline drives Fig. 4a/4b + Fig. 5 (q10); refresh drives
+# Fig. 7; plots reads all result dirs and writes $RESULTS/paper-ready/.
+run_cell tpch-headline
 
-# ---------------------------------------------------------------------------
-# Cell 2: HDD LSM subset (supplementary tpch_lsm_headline_hdd figure).
-# ---------------------------------------------------------------------------
-if [[ "$SKIP_HDD" -eq 0 ]]; then
-    if [[ -d "$HDD_MOUNT" ]]; then
-        run_cell "tpch-headline-hdd" \
-            -v "$HDD_MOUNT":/mnt/hdd
-    else
-        log "WARN: HDD mount '$HDD_MOUNT' not found -- skipping tpch-headline-hdd."
-        log "      Mount the HDD and re-run (stamp logic will skip completed cells)."
-        log "      Or pass --skip-hdd to suppress this warning and continue."
-    fi
+# Supplementary HDD figure -- only when a real HDD is mounted (rotational media
+# is enforced in-container by require_hdd).
+if mountpoint -q "$HDD_MOUNT"; then
+    run_cell tpch-headline-hdd -v "$HDD_MOUNT":/mnt/hdd
 else
-    log "cell 'tpch-headline-hdd': skipped (--skip-hdd)"
+    log "HDD mount '$HDD_MOUNT' absent -- skipping tpch-headline-hdd (supplementary figure)."
 fi
 
-# ---------------------------------------------------------------------------
-# Cell 3: refresh sweep (Fig. 6, Fig. 7) -- KNOWN GAP.
-# The dedicated refresh runner was not committed to the repo.
-# See REPRODUCE.md section "Known gaps" for details and the workaround.
-# ---------------------------------------------------------------------------
-if [[ "$SKIP_REFRESH" -eq 0 ]]; then
-    log "WARN: refresh cell is not yet implemented (known gap)."
-    log "      Figs. 6+7 will show 'no data' panels."
-    log "      See REPRODUCE.md section 'Known gaps' for details."
-    log "      Pass --skip-refresh to suppress this warning."
-else
-    log "cell 'refresh': skipped (--skip-refresh)"
-fi
-
-# ---------------------------------------------------------------------------
-# Cell 4: DBToaster baseline (refresh_sales throughput CSV).
-# ---------------------------------------------------------------------------
-if [[ "$SKIP_DBTOASTER" -eq 0 ]]; then
-    run_cell "dbtoaster"
-else
-    log "cell 'dbtoaster': skipped (--skip-dbtoaster)"
-fi
-
-# ---------------------------------------------------------------------------
-# Cell 5: plots -- reads all result dirs, writes /results/paper-ready/.
-# The plots cell uses --tag-map to redirect the plotter from the authored
-# dated tag names in diagrams.yaml to the neutral cell dirs under /results/.
-# ---------------------------------------------------------------------------
-log "running plots cell ..."
-docker run --rm \
-    -e CELL=plots \
-    -v "$RESULTS":/results \
-    "$IMAGE"
-log "plots: done"
+run_cell refresh
+run_cell dbtoaster
+run_cell plots
 
 log ""
 log "Artifact complete. Paper-ready outputs in: $RESULTS/paper-ready/"
-log "  PDFs:           $RESULTS/paper-ready/*.pdf"
-log "  Macro numbers:  $RESULTS/paper-ready/experiment_numbers.{json,tex}"
-log "  Space table:    $RESULTS/paper-ready/space_table.txt"
-log ""
-log "To verify numbers against the paper source:"
-log "  diff -u sections/experiment_numbers.json $RESULTS/paper-ready/experiment_numbers.json"
+log "  PDFs:          $RESULTS/paper-ready/*.pdf"
+log "  Macro numbers: $RESULTS/paper-ready/experiment_numbers.{json,tex}"
+log "  Space table:   $RESULTS/paper-ready/space_table.txt"
