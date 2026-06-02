@@ -106,7 +106,7 @@ Pinned image digest (verify with `docker inspect --format
 '{{index .RepoDigests 0}}' ghcr.io/alicia-lyu/leanstore:vldb26`):
 
 ```
-ghcr.io/alicia-lyu/leanstore:vldb26@sha256:24dd53af3f4063ad029c9ccc4e07bca58bcc63315019787fadb6c9aaa354c3f3
+ghcr.io/alicia-lyu/leanstore:vldb26@sha256:1745219815ac838b6bb9cf0fa01238d4ecb14d6a56c45f7dc3ad464b76dd0eda
 ```
 
 ### Sweep matrix
