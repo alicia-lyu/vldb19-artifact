@@ -163,8 +163,8 @@ After `make paper-ready` finishes, `paper-ready/` contains:
 - `paper_tpch_lsm_headline.pdf` — Fig. 4b (LSM headline throughput)
 - `paper_q10.pdf` — Fig. 5 (Q10 / Q10i breakdown)
 - `refresh_lsm_vs_btree.pdf` — Fig. 7 (LSM vs. B-tree refresh)
-- `paper_tpch_lsm_headline_hdd.pdf` — supplementary HDD figure (absent if no HDD mount)
-- `paper_lsm_sst_path.pdf` — supplementary SST diagnostics
+- `paper_tpch_lsm_headline_hdd.pdf` — supplementary HDD figure (absent if no HDD mount; see §Supplementary figures)
+- `diag_ssd_lsm_sst_path_ssd.pdf` — supplementary SST diagnostics (see §Supplementary figures)
 - `experiment_numbers.json` — all `\auto*` macro values
 - `experiment_numbers.tex` — LaTeX macro definitions
 - `space_table.txt` — Table 3 (storage sizes)
@@ -207,6 +207,34 @@ make clean         # remove paper-ready/ and results/
   rm results/.stamp_tpch_headline
   ./docker_run.sh
   ```
+
+## Supplementary figures
+
+Two PDFs are committed under [`paper-ready/`](paper-ready/) ahead of any
+reproduction run. They are **supplementary material**, not part of the paper
+main text: both figures overflowed the page budget and were moved to the
+supplement, so they are checked in here rather than left to the reproduction
+pipeline alone. The reproduction path (`make paper-ready`) regenerates them
+in place, but they are *reference exhibits* for the supplementary write-up —
+not headline results to be verified against `experiment_numbers.json`.
+
+- [`paper_tpch_lsm_headline_hdd.pdf`](paper-ready/paper_tpch_lsm_headline_hdd.pdf)
+  — the **HDD counterpart to Fig. 4b** (LSM headline). Median query latency
+  (seconds/query) for Q3, Q5, Q3i, Q5i across the four structures
+  (`Base-Hash`, `Base-Merge`, `Mat-View`, `Merged-Idx`) with the LSM images
+  on the rotational HDD instead of the SSD. `Base-Hash` overflows the axis
+  (annotated 194 / 739 / 314 / 1716 s), making the order-based structures'
+  advantage starker on rotational media than on SSD. Produced by the optional
+  `tpch-headline-hdd` cell; absent if no HDD is mounted.
+
+- [`diag_ssd_lsm_sst_path_ssd.pdf`](paper-ready/diag_ssd_lsm_sst_path_ssd.pdf)
+  — **LSM SST-path diagnostics on SSD** for Q3 and Q3i. Per-transaction SST
+  read time (solid bars, left axis) and total SST compaction time (hatched
+  bars, right axis) across the four structures. This decomposes the LSM read
+  vs. compaction trade-off behind the SSD LSM headline (Fig. 4b): the
+  order-based structures cut per-transaction SST reads sharply while paying
+  more in background compaction. Captured from `sstables.csv` by the
+  `tpch-headline` cell.
 
 ## Workload Specification
 

@@ -16,7 +16,7 @@ Expected layout after ``docker_run.sh`` completes:
       paper_q10.pdf                    (Fig. 5)
       refresh_lsm_vs_btree.pdf         (Fig. 7)
       paper_tpch_lsm_headline_hdd.pdf  (supplementary; absent if no HDD mount)
-      paper_lsm_sst_path.pdf           (supplementary)
+      diag_ssd_lsm_sst_path_ssd.pdf    (supplementary)
       experiment_numbers.json
       experiment_numbers.tex
       space_table.txt
