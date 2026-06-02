@@ -1,6 +1,3 @@
-pandas
-numpy
-matplotlib
-seaborn
-Jinja2
-PyYAML
+# No host-side Python packages are required: all analysis and plotting run
+# inside the Docker image. The only host script, main.py, uses just the Python
+# standard library (it copies the container's paper-ready/ outputs locally).

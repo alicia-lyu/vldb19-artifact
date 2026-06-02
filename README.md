@@ -26,12 +26,13 @@ depends on them.
 
 ### Host prerequisites
 
-1. **Docker Engine ≥ 24** and **Python ≥ 3.10**.
+1. **Docker Engine ≥ 24** and **`make`**. Python ≥ 3.10 is used only by the
+   thin `main.py` copy wrapper (standard library only — no `pip install`
+   needed; all analysis and plotting run inside the image).
 
    ```bash
    docker --version
    sudo systemctl start docker
-   pip install -r requirements.txt
    ```
 
 2. **SSD mount** at `/mnt/ssd` (or set `SSD_MOUNT`).

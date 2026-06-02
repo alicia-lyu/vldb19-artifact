@@ -1,9 +1,11 @@
+# Regenerable outputs (figures + macros + per-run CSVs land in paper-ready/
+# and results/; the two committed sample PDFs in paper-ready/ are exceptions
+# tracked explicitly via `git add -f`).
 *.csv
 *.png
 *.tex
-.DS_Store
-!paper-ready/btree_cpu_utilization.png
-!paper-ready/lsm_cpu_utilization.png
 *stderr.txt
+.DS_Store
+/results
 /TRASH
 __pycache__/
