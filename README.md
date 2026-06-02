@@ -80,7 +80,7 @@ depends on them.
    per-structure refresh copy + result CSVs + headroom). The `tpch-headline-hdd`
    cell writes LSM images to `/mnt/hdd` and needs **~100 GiB free there**.
    (S5/S7 add no disk — they share the S3/S2 images.) For a quick check without
-   the full footprint, use `./docker_run.sh --smoke` (a few GiB at SF 380/150).
+   the full footprint, use `make smoke` (a few GiB at SF=15).
 
 5. **RAM**: ~10 GiB free is plenty. The sweep deliberately caps the engine
    DRAM budget per run (`--dram_gib` 0.1–1.0; beyond-memory operation is the
@@ -148,13 +148,18 @@ The `tpch-headline-hdd` cell runs only when `$HDD_MOUNT` is a real mount;
 without an HDD it is skipped automatically (the supplementary HDD figure is
 simply absent).
 
-For a fast end-to-end sanity check before the multi-hour run, add `--smoke`
-(each cell runs its smallest configuration; figures come out sparse but the
-full pull → cells → plots path completes in minutes):
+For a fast end-to-end sanity check before the multi-hour run, use **`make smoke`**
+(each cell runs its smallest configuration at SF=15, 1 rep; the whole
+pull → cells → plots → copy path completes in a few minutes, and the figures
+land in `paper-ready/` exactly like the full run — just sparser):
 
 ```bash
-./docker_run.sh --smoke
+make smoke
 ```
+
+`make smoke` runs `./docker_run.sh --smoke` and then `main.py`. Running
+`./docker_run.sh --smoke` on its own is fine too, but it leaves the outputs
+under `results/paper-ready/` (it does not copy them up to `paper-ready/`).
 
 ### Expected outputs
 
@@ -165,7 +170,7 @@ After `make paper-ready` finishes, `paper-ready/` contains:
 - `paper_q10.pdf` — Fig. 5 (Q10 / Q10i breakdown)
 - `refresh_lsm_vs_btree.pdf` — Fig. 7 (LSM vs. B-tree refresh)
 - `paper_tpch_lsm_headline_hdd.pdf` — supplementary HDD figure (absent if no HDD mount; see §Supplementary figures)
-- `diag_ssd_lsm_sst_path_ssd.pdf` — supplementary SST diagnostics (see §Supplementary figures)
+- `paper_lsm_sst_path.pdf` — supplementary LSM SST-path diagnostics (see §Supplementary figures)
 - `experiment_numbers.json` — all `\auto*` macro values
 - `experiment_numbers.tex` — LaTeX macro definitions
 - `space_table.txt` — Table 3 (storage sizes)
@@ -188,7 +193,8 @@ hardware).
 ### Makefile targets
 
 ```bash
-make paper-ready   # docker_run.sh + main.py (full end-to-end)
+make smoke         # fast SF=15 validation: docker_run.sh --smoke + main.py
+make paper-ready   # docker_run.sh + main.py (full end-to-end, ~18-24 h)
 make plots         # main.py only (skip sweep if stamp exists)
 make clean         # remove paper-ready/ and results/
 ```

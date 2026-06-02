@@ -1,4 +1,4 @@
-.PHONY: paper-ready plots clean
+.PHONY: paper-ready plots smoke clean
 
 RESULTS ?= results
 PYTHON  ?= python3
@@ -17,6 +17,14 @@ plots: $(RESULTS)/.stamp
 	$(PYTHON) main.py --results $(RESULTS) --out paper-ready/
 
 paper-ready: plots
+
+# Fast end-to-end validation at SF=15 (a few minutes): run the smoke sweep and
+# copy the produced figures + macros into paper-ready/. Always runs (no stamp)
+# — it is a one-off sanity check, not the cached multi-hour full sweep. Use this
+# to confirm the host + image work before committing to `make paper-ready`.
+smoke:
+	./docker_run.sh --smoke --results $(RESULTS)
+	$(PYTHON) main.py --results $(RESULTS) --out paper-ready/
 
 clean:
 	rm -rf paper-ready/*.pdf paper-ready/*.png paper-ready/*.csv $(RESULTS)
