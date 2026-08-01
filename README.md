@@ -118,13 +118,13 @@ as the only env that changes per call. Each cell writes a paper-data-
 shaped subtree (`manifest.yaml` + `raw/` + `summary/`) under
 `results/<cell>/`.
 
-| Cell                | Figures                                         | Walltime (c220g2, 5 reps) | Notes                                   |
-|---------------------|-------------------------------------------------|---------------------------|-----------------------------------------|
-| `tpch-headline`     | Fig. 4a, 4b, 5 (q10), `diag_ssd_lsm_sst_path` (suppl.) | ~14 h         | SSD; btree + LSM; q3/q5/q10 families; sstables.csv captured |
-| `tpch-headline-hdd` | `paper_tpch_lsm_headline_hdd` (suppl.)          | ~6 h                      | HDD; LSM only; skipped if no HDD mount   |
-| `refresh`           | Fig. 7 (`refresh_lsm_vs_btree`)                 | ~3 h                      | RF1/RF2 update sweep; both backends     |
-| `dbtoaster`         | refresh overlay column                          | ~45 min                   | In-memory DBToaster baseline            |
-| `plots`             | all PDFs + macros                               | ~5 min                    | Pure post-processing                    |
+| Cell | Figures | Walltime (c220g2, 5 reps) | Notes |
+| --- | --- | --- | --- |
+| `tpch-headline` | Fig. 4a, 4b, 5 (q10), `diag_ssd_lsm_sst_path` (suppl.) | ~14 h | SSD; btree + LSM; q3/q5/q10 families; sstables.csv captured |
+| `tpch-headline-hdd` | `paper_tpch_lsm_headline_hdd` (suppl.) | ~6 h | HDD; LSM only; skipped if no HDD mount |
+| `refresh` | Fig. 7 (`refresh_lsm_vs_btree`) | ~3 h | RF1/RF2 update sweep; both backends |
+| `dbtoaster` | refresh overlay column | ~45 min | In-memory DBToaster baseline |
+| `plots` | all PDFs + macros | ~5 min | Pure post-processing |
 
 End-to-end is **≈ 24 h at paper SF** (SF 4000 btree / 10000 lsm, 5 reps) on a
 c220g2. **Image loading dominates**: building the 16 SSD headline images alone
@@ -139,8 +139,8 @@ q3/q5/q10 vanilla and q3i/q5i/q10i invoice families sweep together.
 
 Env knobs accepted by all cells:
 
-| Variable     | Default     | Description                                        |
-|--------------|-------------|----------------------------------------------------|
+| Variable | Default | Description |
+| --- | --- | --- |
 | `REPS`       | `5`         | Repetitions per (binary, cell, structure, bg)      |
 | `SSD_MOUNT`  | `/mnt/ssd`  | SSD bind-mount point                               |
 | `HDD_MOUNT`  | `/mnt/hdd`  | HDD bind-mount point                               |
@@ -508,41 +508,41 @@ Flag / option values used in the camera-ready sweep. Per-cell overrides
 
 ### LeanStore flags
 
-| Flag                       | Value                              | Description                                                              |
-|----------------------------|------------------------------------|--------------------------------------------------------------------------|
-| `--tpch_scale_factor`      | 4000 (btree) / 10000 (lsm)         | TPC-H scale (≈8.6 GiB / 7.9 GiB base tables)                            |
-| `--storage_structure`      | 1 / 2 / 3 / 4 (+ 5, 7 for Q10)     | 1=`Base-Merge`, 2=`Mat-View`, 3=`Merged-Idx`, 4=`Base-Hash`. Swept.      |
-| `--tx_seconds`             | 15                                 | Seconds per measured transaction type.                                   |
-| `--warmup_seconds`         | 5                                  | Warm-up before measurement.                                              |
-| `--param_seed`             | 0..4 (per rep)                     | Substitution-parameter rotation; identical across structures within a rep. |
-| `--dram_gib`               | 0.1 / 1.0 / 9.0                    | Engine DRAM budget. 1.0 is the headline; 9.0 is the DBToaster point.     |
-| `--ssd_path`               | `/mnt/ssd`                         | Bind-mounted into the container.                                         |
-| `--isolation_level`        | `si`                               | Snapshot isolation.                                                      |
-| `--worker_threads`         | 4                                  | Foreground workers.                                                      |
-| `--pp_threads`             | 1                                  | Page-provider threads.                                                   |
-| `--bg_query_thread`        | true                               | Background TPC-H query thread.                                           |
-| `--bg_point_lookups`       | true                               | Point-lookup noisy-neighbor stream.                                      |
+| Flag | Value | Description |
+| --- | --- | --- |
+| `--tpch_scale_factor` | 4000 (btree) / 10000 (lsm) | TPC-H scale (≈8.6 GiB / 7.9 GiB base tables) |
+| `--storage_structure` | 1 / 2 / 3 / 4 (+ 5, 7 for Q10) | 1=`Base-Merge`, 2=`Mat-View`, 3=`Merged-Idx`, 4=`Base-Hash`. Swept. |
+| `--tx_seconds` | 15 | Seconds per measured transaction type. |
+| `--warmup_seconds` | 5 | Warm-up before measurement. |
+| `--param_seed` | 0..4 (per rep) | Substitution-parameter rotation; identical across structures within a rep. |
+| `--dram_gib` | 0.1 / 1.0 / 9.0 | Engine DRAM budget. 1.0 is the headline; 9.0 is the DBToaster point. |
+| `--ssd_path` | `/mnt/ssd` | Bind-mounted into the container. |
+| `--isolation_level` | `si` | Snapshot isolation. |
+| `--worker_threads` | 4 | Foreground workers. |
+| `--pp_threads` | 1 | Page-provider threads. |
+| `--bg_query_thread` | true | Background TPC-H query thread. |
+| `--bg_point_lookups` | true | Point-lookup noisy-neighbor stream. |
 
 ### RocksDB options
 
-| Option                                       | Value                            | Description                                                |
-|----------------------------------------------|----------------------------------|------------------------------------------------------------|
-| `use_direct_reads`                           | true                             | Bypass the OS page cache.                                  |
-| `use_direct_io_for_flush_and_compaction`     | true                             | Bypass page cache for background IO.                       |
-| `max_background_jobs`                        | 1                                | Single background thread for transparency.                 |
-| `compression`                                | `kNoCompression`                 | Disabled — we measure the raw scan path.                   |
-| `compaction_style`                           | `kCompactionStyleLevel`          | Plus `OptimizeLevelStyleCompaction()`.                     |
-| `target_file_size_base`                      | 1 MiB                            | Dataset is smaller than RocksDB's 64 MiB default.          |
-| `target_file_size_multiplier`                | 2                                |                                                            |
-| `block_cache` (LRU)                          | `dram_gib × block_share`         | `strict_capacity_limit=true`.                              |
-| `table.metadata_block_size`                  | 64 KiB                           | 4 KiB default is too small for modern hardware.            |
-| `table.filter_policy`                        | Bloom(bits=10, use_block_based=false) | Full filter.                                          |
-| `table.index_type`                           | `kTwoLevelIndexSearch`           | Partitioned index.                                         |
-| `table.partition_filters`                    | true                             | Partitioned filter blocks.                                 |
-| `table.cache_index_and_filter_blocks`        | true                             | Index/filter charged to the block cache.                   |
-| `table.pin_l0_filter_and_index_blocks_in_cache` | true                          |                                                            |
-| `write_buffer_manager`                       | `memtable_budget × 0.9`          | Shared across CFs.                                         |
-| `max_write_buffer_number`                    | 10                               |                                                            |
+| Option | Value | Description |
+| --- | --- | --- |
+| `use_direct_reads` | true | Bypass the OS page cache. |
+| `use_direct_io_for_flush_and_compaction` | true | Bypass page cache for background IO. |
+| `max_background_jobs` | 1 | Single background thread for transparency. |
+| `compression` | `kNoCompression` | Disabled — we measure the raw scan path. |
+| `compaction_style` | `kCompactionStyleLevel` | Plus `OptimizeLevelStyleCompaction()`. |
+| `target_file_size_base` | 1 MiB | Dataset is smaller than RocksDB's 64 MiB default. |
+| `target_file_size_multiplier` | 2 | |
+| `block_cache` (LRU) | `dram_gib × block_share` | `strict_capacity_limit=true`. |
+| `table.metadata_block_size` | 64 KiB | 4 KiB default is too small for modern hardware. |
+| `table.filter_policy` | Bloom(bits=10, use_block_based=false) | Full filter. |
+| `table.index_type` | `kTwoLevelIndexSearch` | Partitioned index. |
+| `table.partition_filters` | true | Partitioned filter blocks. |
+| `table.cache_index_and_filter_blocks` | true | Index/filter charged to the block cache. |
+| `table.pin_l0_filter_and_index_blocks_in_cache` | true | |
+| `write_buffer_manager` | `memtable_budget × 0.9` | Shared across CFs. |
+| `max_write_buffer_number` | 10 | |
 
 ## Source repositories
 
@@ -550,9 +550,9 @@ The Docker image is built upstream from the LeanStore source repo;
 the reproducer only needs to `docker pull` it. The source tree is
 listed here for inspection and rebuild.
 
-| Image                                  | Source                                                            | Commit                            |
-|----------------------------------------|-------------------------------------------------------------------|-----------------------------------|
-| `ghcr.io/alicia-lyu/leanstore:vldb26`  | <https://github.com/alicia-lyu/leanstore>                         | `sha256:24dd53af…54c3f3`         |
+| Image | Source | Commit |
+| --- | --- | --- |
+| `ghcr.io/alicia-lyu/leanstore:vldb26` | <https://github.com/alicia-lyu/leanstore> | `sha256:24dd53af…54c3f3` |
 
 DBToaster is no longer a separate image — it lives in
 `leanstore/dbtoaster/` and is built as part of the single artifact
