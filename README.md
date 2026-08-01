@@ -25,9 +25,13 @@ raw CSVs come out blank, and no paper figure or macro depends on them.
 
 ### Host prerequisites
 
-**Operating system: Linux.** The mount commands, device paths, and
-`systemctl` invocations below are Linux-specific. The authors used
-Ubuntu 20.04 on CloudLab `c220g2`.
+**Operating system: Linux.** The Docker image is built on Ubuntu 22.04
+and the sweep uses `O_DIRECT` I/O against a bind-mounted SSD path
+(`-v /mnt/ssd:/mnt/ssd`). This requires a Linux host with the SSD
+directly mounted — Docker Desktop on macOS or Windows cannot pass
+through raw device access in the same way. The host setup commands
+below (`mkfs.ext4`, `fstab`, `lsblk`, `systemctl`) are also
+Linux-specific. The authors used CloudLab `c220g2` (Ubuntu 22.04).
 
 1. **Docker Engine ≥ 24** and **`make`**. Python ≥ 3.10 is used only by the
    thin `main.py` copy wrapper (standard library only — no `pip install`
